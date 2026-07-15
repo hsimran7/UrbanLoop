@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: urbanloop-postgres
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: urbanloop_user
+      POSTGRES_PASSWORD: urbanloop_secure_password
+      POSTGRES_DB: urbanloop_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: urbanloop-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    restart: always
+
+volumes:
+  postgres_data:
+  redis_data:
