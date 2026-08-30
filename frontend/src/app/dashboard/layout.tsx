@@ -161,6 +161,46 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 >
                   <span>Operations Control</span>
                 </Link>
+                <Link
+                  href="/dashboard/admin/traceability"
+                  className={`px-6 py-3 text-sm flex items-center space-x-3 ${
+                    pathname === '/dashboard/admin/traceability' ? activeLinkClass : inactiveLinkClass
+                  }`}
+                >
+                  <span>Government Trace</span>
+                </Link>
+                <Link
+                  href="/dashboard/admin/service-requests"
+                  className={`px-6 py-3 text-sm flex items-center space-x-3 ${
+                    pathname === '/dashboard/admin/service-requests' ? activeLinkClass : inactiveLinkClass
+                  }`}
+                >
+                  <span>Service Requests</span>
+                </Link>
+                <Link
+                  href="/dashboard/admin/fleet"
+                  className={`px-6 py-3 text-sm flex items-center space-x-3 ${
+                    pathname === '/dashboard/admin/fleet' ? activeLinkClass : inactiveLinkClass
+                  }`}
+                >
+                  <span>Fleet Live Tracking</span>
+                </Link>
+                <Link
+                  href="/dashboard/admin/command-center"
+                  className={`px-6 py-3 text-sm flex items-center space-x-3 ${
+                    pathname === '/dashboard/admin/command-center' ? activeLinkClass : inactiveLinkClass
+                  }`}
+                >
+                  <span>Command Center</span>
+                </Link>
+                <Link
+                  href="/dashboard/admin/ai-intelligence"
+                  className={`px-6 py-3 text-sm flex items-center space-x-3 ${
+                    pathname === '/dashboard/admin/ai-intelligence' ? activeLinkClass : inactiveLinkClass
+                  }`}
+                >
+                  <span>AI Decision Intelligence</span>
+                </Link>
               </>
             ) : isWorker ? (
               <>
@@ -182,6 +222,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <span>Operations Control</span>
                   </Link>
                 )}
+                {user.role === 'FACILITY_MANAGER' && (
+                  <Link
+                    href="/dashboard/facility"
+                    className={`px-6 py-3 text-sm flex items-center space-x-3 ${
+                      pathname === '/dashboard/facility' ? activeLinkClass : inactiveLinkClass
+                    }`}
+                  >
+                    <span>Intake Control</span>
+                  </Link>
+                )}
+                <Link
+                  href="/dashboard/admin/service-requests"
+                  className={`px-6 py-3 text-sm flex items-center space-x-3 ${
+                    pathname === '/dashboard/admin/service-requests' ? activeLinkClass : inactiveLinkClass
+                  }`}
+                >
+                  <span>Service Requests</span>
+                </Link>
+                <Link
+                  href="/dashboard/driver"
+                  className={`px-6 py-3 text-sm flex items-center space-x-3 ${
+                    pathname === '/dashboard/driver' ? activeLinkClass : inactiveLinkClass
+                  }`}
+                >
+                  <span>Operator Board</span>
+                </Link>
               </>
             ) : (
               <>
@@ -216,6 +282,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   }`}
                 >
                   <span>Emptying History</span>
+                </Link>
+                <Link
+                  href="/dashboard/complaints"
+                  className={`px-6 py-3 text-sm flex items-center space-x-3 ${
+                    pathname === '/dashboard/complaints' ? activeLinkClass : inactiveLinkClass
+                  }`}
+                >
+                  <span>Support Requests</span>
                 </Link>
               </>
             )}

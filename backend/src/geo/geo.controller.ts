@@ -39,6 +39,24 @@ export class GeoController {
     return this.geoService.createCity(dto, userId, ip, ua);
   }
 
+  @Get('states')
+  @ApiOperation({ summary: 'Get list of all states' })
+  async getStates() {
+    return this.geoService.getStates();
+  }
+
+  @Get('states/:stateId/districts')
+  @ApiOperation({ summary: 'Get districts in a state' })
+  async getDistricts(@Param('stateId') stateId: string) {
+    return this.geoService.getDistrictsByState(stateId);
+  }
+
+  @Get('districts/:districtId/cities')
+  @ApiOperation({ summary: 'Get cities in a district' })
+  async getCitiesByDistrict(@Param('districtId') districtId: string) {
+    return this.geoService.getCitiesByDistrict(districtId);
+  }
+
   @Get('cities')
   @ApiOperation({ summary: 'Get list of all cities' })
   async getCities() {
@@ -81,6 +99,18 @@ export class GeoController {
   @ApiOperation({ summary: 'Get areas in a ward' })
   async getAreas(@Param('wardId') wardId: string) {
     return this.geoService.getAreasByWard(wardId);
+  }
+
+  @Get('areas/:areaId/zones')
+  @ApiOperation({ summary: 'Get zones in an area' })
+  async getZones(@Param('areaId') areaId: string) {
+    return this.geoService.getZonesByArea(areaId);
+  }
+
+  @Get('zones/:zoneId/streets')
+  @ApiOperation({ summary: 'Get streets in a zone' })
+  async getStreets(@Param('zoneId') zoneId: string) {
+    return this.geoService.getStreetsByZone(zoneId);
   }
 
   @Delete('cities/:id')

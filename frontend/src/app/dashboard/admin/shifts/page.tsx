@@ -134,7 +134,7 @@ export default function ShiftsManagementPage() {
     try {
       const res = await apiRequest(`/shifts/${assignShiftId}/assignments`, {
         method: 'POST',
-        body: JSON.stringify({ workerProfileId: assignWorkerId, workDate: assignDate }),
+        body: JSON.stringify({ workerId: assignWorkerId, workDate: assignDate, status: 'ASSIGNED' }),
       });
       if (res.ok) {
         setSuccessMsg('Worker assigned to shift.');
@@ -300,7 +300,7 @@ export default function ShiftsManagementPage() {
                 <select value={assignShiftId} onChange={e => setAssignShiftId(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-emerald-500/50">
                   <option value="">— Select shift —</option>
-                  {shifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {shifts.map(s => <option key={s.id || (s as any)._id} value={s.id || (s as any)._id}>{s.name.replace(/\s+Shift$/i, '')}</option>)}
                 </select>
               </div>
               <div>

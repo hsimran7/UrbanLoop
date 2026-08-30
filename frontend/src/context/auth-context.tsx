@@ -1,8 +1,6 @@
-'use client';
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { apiRequest } from '../utils/api';
-import { useRouter } from 'next/navigation';
+import { useNavigate } from "react-router-dom";
 
 interface User {
   id: string;
@@ -16,7 +14,14 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  register: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (payload: {
+    email: string;
+    password?: string;
+    name: string;
+    phone: string;
+    role: 'CITIZEN' | 'WORKER';
+    employeeCode?: string;
+  }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -26,7 +31,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const checkAuth = async () => {
     try {
@@ -59,7 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (res.ok) {
         setUser(data.user);
-        router.push('/dashboard');
+        navigate('/dashboard');
         return { success: true };
       } else {
         return { success: false, error: data.message || 'Login failed.' };
@@ -69,11 +74,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (email: string, password: string) => {
+  const register = async (payload: {
+    email: string;
+    password?: string;
+    name: string;
+    phone: string;
+    role: 'CITIZEN' | 'WORKER';
+    employeeCode?: string;
+  }) => {
     try {
       const res = await apiRequest('/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -95,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Logout error:', e);
     } finally {
       setUser(null);
-      router.push('/login');
+      navigate('/login');
     }
   };
 

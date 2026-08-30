@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiRequest } from '../../../../utils/api';
+import { SearchableSelect } from '../../../../components/ui/SearchableSelect';
 
 interface Area {
   id: string;
@@ -183,13 +184,12 @@ export default function ZonesManagementPage() {
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Parent Area</label>
-              <select required value={zoneAreaId} onChange={e => setZoneAreaId(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-emerald-500/50">
-                <option value="">— Select area —</option>
-                {areas.map(a => (
-                  <option key={a.id} value={a.id}>{a.name} (Ward {a.ward.number}, {a.ward.city.name})</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={zoneAreaId}
+                onChange={setZoneAreaId}
+                options={areas.map(a => ({ value: a.id, label: `${a.name} (Ward ${a.ward.number}, ${a.ward.city.name})` }))}
+                placeholder="— Select area —"
+              />
             </div>
             <div className="md:col-span-2">
               <label className="block text-xs text-slate-400 mb-1">Description (optional)</label>

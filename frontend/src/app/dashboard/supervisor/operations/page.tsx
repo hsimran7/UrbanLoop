@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiRequest } from '../../../../utils/api';
+import { getSocket } from '../../../../utils/socket';
 
 interface FlaggedTarget {
   targetId: string;
@@ -19,7 +20,7 @@ interface ActiveOperation {
   areaName: string;
   shiftName: string;
   wasteType: string;
-  status: 'PLANNED' | 'READY' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: 'CREATED' | 'ASSIGNED' | 'ACCEPTED' | 'STARTED' | 'IN_PROGRESS' | 'PAUSED' | 'COMPLETED' | 'MISSED' | 'CANCELLED';
   expected: number;
   pending: number;
   collected: number;
@@ -62,11 +63,36 @@ export default function SupervisorOperationsPage() {
   const [correctionReason, setCorrectionReason] = useState('');
   const [submittingCorrection, setSubmittingCorrection] = useState(false);
 
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     fetchActiveOperations();
-    // Auto-poll operations progress every 15 seconds
-    const interval = setInterval(fetchActiveOperations, 15000);
-    return () => clearInterval(interval);
+    
+    const socket = getSocket('realtime');
+    const queueFetch = () => {
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = setTimeout(() => fetchActiveOperations(), 500);
+    };
+
+    socket.on('assignmentCreated', queueFetch);
+    socket.on('assignmentUpdated', queueFetch);
+    socket.on('assignmentAccepted', queueFetch);
+    socket.on('assignmentRejected', queueFetch);
+    socket.on('assignmentStarted', queueFetch);
+    socket.on('assignmentCompleted', queueFetch);
+    socket.on('notificationCreated', queueFetch);
+
+    return () => {
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+      socket.off('assignmentCreated', queueFetch);
+      socket.off('assignmentUpdated', queueFetch);
+      socket.off('assignmentAccepted', queueFetch);
+      socket.off('assignmentRejected', queueFetch);
+      socket.off('assignmentStarted', queueFetch);
+      socket.off('assignmentCompleted', queueFetch);
+      socket.off('notificationCreated', queueFetch);
+      socket.disconnect();
+    };
   }, []);
 
   async function fetchActiveOperations() {
@@ -163,6 +189,7 @@ export default function SupervisorOperationsPage() {
       {/* Main Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
+          { label: 'Pending / Assigned', val: ops.filter(o => o.status === 'CREATED' || o.status === 'ASSIGNED' || o.status === 'ACCEPTED').length, col: 'text-yellow-400' },
           { label: 'Active Shifts', val: ops.filter(o => o.status === 'IN_PROGRESS').length, col: 'text-blue-400' },
           { label: 'Completed Shifts', val: ops.filter(o => o.status === 'COMPLETED').length, col: 'text-emerald-400' },
           { label: 'Total Bins Serviced', val: ops.reduce((s, o) => s + o.collected, 0), col: 'text-indigo-400' },

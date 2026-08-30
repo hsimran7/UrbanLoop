@@ -1,7 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiRequest } from '../../../../utils/api';
+import { SearchableSelect } from '../../../../components/ui/SearchableSelect';
+import { CascadingLocationFilter } from '../../../../components/ui/CascadingLocationFilter';
+import { getSocket } from '../../../../utils/socket';
 
 /* ─────────────────────────── types ─────────────────────────── */
 interface Team {
@@ -38,9 +41,11 @@ interface DailyAssignment {
   id: string;
   assignmentDate: string;
   wasteType: string;
-  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: string;
   generationSource: string;
   team?: { name: string };
+  primaryWorker?: { user?: { name: string } };
+  driver?: { user?: { name: string } };
   serviceZone?: { name: string };
   shift?: { name: string; startTime: string; endTime: string };
   targets?: AssignmentTarget[];
@@ -57,9 +62,14 @@ interface GenerationResult {
 const WASTE_TYPES = ['DRY', 'WET', 'E_WASTE', 'OTHER'];
 
 const STATUS_STYLES: Record<string, string> = {
-  PENDING:     'bg-yellow-500/10 text-yellow-300 border-yellow-500/20',
+  CREATED:     'bg-slate-500/10 text-slate-300 border-slate-500/20',
+  ASSIGNED:    'bg-yellow-500/10 text-yellow-300 border-yellow-500/20',
+  ACCEPTED:    'bg-teal-500/10 text-teal-300 border-teal-500/20',
+  STARTED:     'bg-indigo-500/10 text-indigo-300 border-indigo-500/20',
   IN_PROGRESS: 'bg-blue-500/10 text-blue-300 border-blue-500/20',
+  PAUSED:      'bg-orange-500/10 text-orange-300 border-orange-500/20',
   COMPLETED:   'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
+  MISSED:      'bg-red-500/10 text-red-300 border-red-500/20',
   CANCELLED:   'bg-red-500/10 text-red-300 border-red-500/20',
 };
 
@@ -70,14 +80,55 @@ const WASTE_COLORS: Record<string, string> = {
   OTHER:  'bg-slate-500/10 text-slate-300 border-slate-500/20',
 };
 
+function formatTime12h(timeStr: string) {
+  if (!timeStr) return '';
+  const parts = timeStr.split(':');
+  if (parts.length < 2) return timeStr;
+  const hour = parseInt(parts[0], 10);
+  const min = parts[1];
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  const padHour = displayHour.toString().padStart(2, '0');
+  return `${padHour}:${min} ${ampm}`;
+}
+
 /* ─────────────────────────── component ─────────────────────────── */
 export default function AssignmentsManagementPage() {
-  const [activeTab, setActiveTab] = useState<'generate' | 'assignments' | 'responsibilities'>('generate');
+  const [activeTab, setActiveTab] = useState<'generate' | 'manual_planner' | 'assignments' | 'responsibilities'>('generate');
 
   // Generate tab
   const [genDate, setGenDate] = useState(new Date().toISOString().split('T')[0]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [genResult, setGenResult] = useState<GenerationResult | null>(null);
+
+  // Manual Planner form state
+  const [plannerShifts, setPlannerShifts] = useState<any[]>([]);
+  const [plannerVehicles, setPlannerVehicles] = useState<any[]>([]);
+  const [plannerWorkers, setPlannerWorkers] = useState<any[]>([]);
+  const [plannerCities, setPlannerCities] = useState<any[]>([]);
+  const [plannerWards, setPlannerWards] = useState<any[]>([]);
+  const [plannerAreas, setPlannerAreas] = useState<any[]>([]);
+  const [plannerZones, setPlannerZones] = useState<any[]>([]);
+  
+  const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
+  const [manualWorkerId, setManualWorkerId] = useState('');
+  const [manualPartnerId, setManualPartnerId] = useState('');
+  const [manualDriverId, setManualDriverId] = useState('');
+  const [manualVehicleId, setManualVehicleId] = useState('');
+  
+  const [manualCityId, setManualCityId] = useState('');
+  const [manualWardId, setManualWardId] = useState('');
+  const [manualAreaId, setManualAreaId] = useState('');
+  const [manualZoneId, setManualZoneId] = useState('');
+  
+  const [manualWasteType, setManualWasteType] = useState('DRY');
+  const [manualShiftId, setManualShiftId] = useState('');
+  const [manualStartTime, setManualStartTime] = useState('');
+  const [manualEndTime, setManualEndTime] = useState('');
+  const [manualPriority, setManualPriority] = useState('NORMAL');
+  const [manualEstBinCount, setManualEstBinCount] = useState('');
+  const [manualEstDuration, setManualEstDuration] = useState('');
+  const [manualNotes, setManualNotes] = useState('');
 
   // Assignments tab
   const [assignments, setAssignments] = useState<DailyAssignment[]>([]);
@@ -125,18 +176,96 @@ export default function AssignmentsManagementPage() {
   }, []);
 
   const fetchTeamsAndZones = useCallback(async () => {
-    const [teamRes, zoneRes] = await Promise.all([
-      apiRequest('/teams'),
-      apiRequest('/zones'),
-    ]);
-    if (teamRes.ok) setTeams(await teamRes.json());
-    if (zoneRes.ok) setZones(await zoneRes.json());
+    try {
+      const [teamRes, zoneRes] = await Promise.all([
+        apiRequest('/teams'),
+        apiRequest('/zones'),
+      ]);
+      if (teamRes.ok) setTeams(await teamRes.json());
+      if (zoneRes.ok) setZones(await zoneRes.json());
+    } catch (e) {
+      console.error('Error fetching teams and zones:', e);
+    }
   }, []);
+
+  async function fetchPlannerMetadata() {
+    try {
+      const [shiftRes, vehRes, workerRes, cityRes] = await Promise.all([
+        apiRequest('/shifts'),
+        apiRequest('/fleet/vehicles'),
+        apiRequest('/workforce/workers'),
+        apiRequest('/geo/cities'),
+      ]);
+
+      if (shiftRes.ok) setPlannerShifts(await shiftRes.json());
+      if (vehRes.ok) {
+        const vehs = await vehRes.json();
+        setPlannerVehicles(vehs.filter((v: any) => v.status === 'AVAILABLE' || v.status === 'IN_SERVICE'));
+      }
+      if (workerRes.ok) {
+        const allUsers = await workerRes.json();
+        setPlannerWorkers(allUsers.filter((u: any) => u.status !== 'SUSPENDED' && u.status !== 'REJECTED'));
+      }
+      if (cityRes.ok) setPlannerCities(await cityRes.json());
+    } catch (e) {
+      console.error('Error fetching planner metadata:', e);
+    }
+  }
+
+  useEffect(() => {
+    if (manualCityId) {
+      apiRequest(`/geo/cities/${manualCityId}/wards`).then(r => r.ok ? r.json() : []).then(setPlannerWards).catch(() => setPlannerWards([]));
+    } else {
+      setPlannerWards([]);
+    }
+  }, [manualCityId]);
+
+  useEffect(() => {
+    if (manualWardId) {
+      apiRequest(`/geo/wards/${manualWardId}/areas`).then(r => r.ok ? r.json() : []).then(setPlannerAreas).catch(() => setPlannerAreas([]));
+    } else {
+      setPlannerAreas([]);
+    }
+  }, [manualWardId]);
+
+  useEffect(() => {
+    if (manualAreaId) {
+      apiRequest('/zones').then(r => r.ok ? r.json() : []).then(z => {
+        setPlannerZones(z.filter((zone: any) => zone.areaId === manualAreaId));
+      }).catch(() => setPlannerZones([]));
+    } else {
+      setPlannerZones([]);
+    }
+  }, [manualAreaId]);
 
   useEffect(() => {
     if (activeTab === 'assignments') fetchAssignments(filterDate);
     if (activeTab === 'responsibilities') { fetchResponsibilities(); fetchTeamsAndZones(); }
+    if (activeTab === 'manual_planner') { fetchPlannerMetadata(); }
   }, [activeTab, filterDate, fetchAssignments, fetchResponsibilities, fetchTeamsAndZones]);
+
+  useEffect(() => {
+    const socket = getSocket('realtime');
+    
+    socket.on('assignmentUpdated', () => {
+      if (activeTab === 'assignments') fetchAssignments(filterDate);
+    });
+
+    socket.on('workerShiftStarted', () => {
+      if (activeTab === 'assignments') fetchAssignments(filterDate);
+    });
+
+    socket.on('taskCompleted', () => {
+      if (activeTab === 'assignments') fetchAssignments(filterDate);
+    });
+
+    return () => {
+      socket.off('assignmentUpdated');
+      socket.off('workerShiftStarted');
+      socket.off('taskCompleted');
+      socket.disconnect();
+    };
+  }, [activeTab, filterDate, fetchAssignments]);
 
   /* ── generate ── */
   async function handleGenerate(e: React.FormEvent) {
@@ -160,6 +289,55 @@ export default function AssignmentsManagementPage() {
       setErrorMsg('Network error. Please try again.');
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  /* ── manual planner ── */
+  async function handleCreateManualAssignment(e: React.FormEvent) {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+    setIsSubmitting(true);
+
+    const payload = {
+      assignmentDate: manualDate,
+      workerId: manualWorkerId,
+      partnerWorkerId: manualPartnerId,
+      driverId: manualDriverId,
+      vehicleId: manualVehicleId,
+      areaId: manualAreaId,
+      wardId: manualWardId,
+      zoneId: manualZoneId,
+      wasteType: manualWasteType,
+      shiftId: manualShiftId,
+      startTime: manualStartTime,
+      endTime: manualEndTime,
+      priority: manualPriority,
+      estimatedBinCount: manualEstBinCount,
+      estimatedDuration: manualEstDuration,
+      notes: manualNotes,
+    };
+
+    try {
+      const res = await apiRequest('/assignments/manual-planner', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        setSuccessMsg('Advanced Collection Assignment successfully created and synced to Worker Dashboards.');
+        setManualWorkerId(''); setManualPartnerId(''); setManualDriverId(''); setManualVehicleId('');
+        setManualCityId(''); setManualWardId(''); setManualAreaId(''); setManualZoneId('');
+        setManualNotes(''); setManualEstBinCount(''); setManualEstDuration('');
+        fetchAssignments(filterDate);
+      } else {
+        const err = await res.json();
+        setErrorMsg(err.message || 'Validation error creating assignment.');
+      }
+    } catch {
+      setErrorMsg('Network connectivity issue.');
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -201,17 +379,18 @@ export default function AssignmentsManagementPage() {
 
   /* ─────────────── render ─────────────── */
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-24 text-slate-100">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-100">Daily Assignments</h1>
-        <p className="text-sm text-slate-400 mt-1">Generate, review and manage daily collection work assignments</p>
+      <div className="p-6 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-indigo-950/20 backdrop-blur">
+        <h1 className="text-2xl font-bold text-slate-100">Daily Assignments Control</h1>
+        <p className="text-sm text-slate-400 mt-1">Generate schedules, plan collection runs, and assign vehicles/workforces dynamically.</p>
       </div>
 
       {/* Tabs */}
       <div className="flex border-b border-slate-800">
         {([
           { key: 'generate', label: 'Generate Assignments' },
+          { key: 'manual_planner', label: 'Manual Planner Form' },
           { key: 'assignments', label: 'Assignment Viewer' },
           { key: 'responsibilities', label: 'Team Responsibilities' },
         ] as const).map(tab => (
@@ -227,8 +406,8 @@ export default function AssignmentsManagementPage() {
       </div>
 
       {/* Feedback */}
-      {errorMsg && <div className="p-4 rounded-xl border border-red-500/30 bg-red-950/20 text-red-300 text-sm">{errorMsg}</div>}
-      {successMsg && <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-950/20 text-emerald-300 text-sm">{successMsg}</div>}
+      {errorMsg && <div className="p-4 rounded-xl border border-red-500/30 bg-red-950/20 text-red-300 text-xs">{errorMsg}</div>}
+      {successMsg && <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-950/20 text-emerald-350 text-xs">{successMsg}</div>}
 
       {/* ────── TAB: Generate ────── */}
       {activeTab === 'generate' && (
@@ -242,120 +421,209 @@ export default function AssignmentsManagementPage() {
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-100">Assignment Generation Engine</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-450 mt-0.5">
                   Resolves today's schedules, maps shifts, validates coverage and snapshots targets atomically
                 </p>
               </div>
-            </div>
-
-            {/* How it works */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {[
-                { icon: '📅', label: 'Resolve Schedules', desc: 'Find all areas with active schedules (respecting exceptions) for the target date' },
-                { icon: '🗺️', label: 'Map Service Zones', desc: 'Find eligible service zones with team responsibilities and shift coverage' },
-                { icon: '📸', label: 'Snapshot Targets', desc: 'Atomically snapshot all eligible bins into DailyAssignmentTarget records' },
-              ].map(step => (
-                <div key={step.label} className="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
-                  <div className="text-xl mb-2">{step.icon}</div>
-                  <div className="text-xs font-semibold text-slate-300 mb-1">{step.label}</div>
-                  <div className="text-xs text-slate-500">{step.desc}</div>
-                </div>
-              ))}
             </div>
 
             <div className="flex items-end gap-4">
               <div className="flex-1">
                 <label className="block text-xs text-slate-400 mb-1">Target Date</label>
                 <input type="date" value={genDate} onChange={e => setGenDate(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-emerald-500/50" />
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-850 text-slate-100 text-xs focus:outline-none focus:border-emerald-500/50" />
               </div>
               <button type="submit" disabled={isGenerating}
-                className="px-6 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 hover:opacity-90 active:scale-95 transition disabled:opacity-50 shadow-lg shadow-emerald-500/20 min-w-[140px]">
-                {isGenerating ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="h-4 w-4 border-2 border-slate-950/40 border-t-slate-950 rounded-full animate-spin" />
-                    Generating...
-                  </span>
-                ) : 'Generate Now'}
+                className="px-6 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-slate-100 transition disabled:opacity-50 min-w-[140px]">
+                {isGenerating ? 'Generating...' : 'Generate Now'}
               </button>
             </div>
           </form>
 
-          {/* Generation Results */}
           {genResult && (
             <div className="space-y-4">
               {/* Stats row */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                 {[
                   { label: 'Generated', value: genResult.generated, color: 'text-emerald-400' },
                   { label: 'Skipped', value: genResult.skipped, color: 'text-yellow-400' },
-                  { label: 'Warnings', value: genResult.coverageWarnings.length, color: 'text-orange-400' },
-                  { label: 'Total Targets', value: genResult.assignments.reduce((s, a) => s + (a._count?.targets ?? a.targets?.length ?? 0), 0), color: 'text-cyan-400' },
+                  { label: 'Warnings', value: genResult.coverageWarnings?.length || 0, color: 'text-orange-400' },
                 ].map(stat => (
-                  <div key={stat.label} className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 text-center">
-                    <div className={`text-3xl font-bold ${stat.color}`}>{stat.value}</div>
-                    <div className="text-xs text-slate-500 mt-1">{stat.label}</div>
-                  </div>
-                ))}
-              </div>
+      {/* ────── TAB: Manual Planner ────── */}
+      {activeTab === 'manual_planner' && (
+        <form onSubmit={handleCreateManualAssignment} className="p-6 md:p-8 rounded-2xl border border-emerald-900/30 bg-slate-900/80 backdrop-blur-md shadow-2xl shadow-emerald-950/20 space-y-6 text-xs text-slate-200 transition-all">
+          <div className="border-b border-emerald-900/30 pb-4">
+            <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+              <span className="text-emerald-400 text-lg">📝</span> Manual Assignment Panel
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">Assign vehicles, drivers, collection shifts and wards manually while verifying workforce restrictions.</p>
+          </div>
 
-              {/* Coverage warnings */}
-              {genResult.coverageWarnings.length > 0 && (
-                <div className="p-5 rounded-xl border border-orange-500/30 bg-orange-950/10 space-y-2">
-                  <div className="flex items-center gap-2 text-orange-300 font-semibold text-sm">
-                    ⚠️ Coverage Warnings ({genResult.coverageWarnings.length})
-                  </div>
-                  <ul className="space-y-1">
-                    {genResult.coverageWarnings.map((w, i) => (
-                      <li key={i} className="text-xs text-orange-300/70 pl-4">• {w}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Generated assignments preview */}
-              {genResult.assignments.length > 0 && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-slate-800 text-sm font-semibold text-slate-200">
-                    Generated Assignments
-                  </div>
-                  <div className="divide-y divide-slate-800/50">
-                    {genResult.assignments.map(a => (
-                      <div key={a.id} className="px-6 py-4 flex items-center gap-4">
-                        <span className={`px-2 py-0.5 rounded-md text-xs font-medium border ${WASTE_COLORS[a.wasteType] || WASTE_COLORS.OTHER}`}>
-                          {a.wasteType}
-                        </span>
-                        <div className="flex-1">
-                          <div className="text-sm text-slate-200">
-                            {a.team?.name ?? '—'} → {a.serviceZone?.name ?? '—'}
-                          </div>
-                          <div className="text-xs text-slate-500 mt-0.5">
-                            {a.shift?.name} · {a.shift?.startTime}–{a.shift?.endTime} · {a._count?.targets ?? a.targets?.length ?? 0} targets
-                          </div>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded-md text-xs font-medium border ${STATUS_STYLES[a.status]}`}>
-                          {a.status}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+          {/* ── Live Workforce Counter Stats ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border border-emerald-900/30 p-4 rounded-2xl bg-slate-950/50">
+            <div className="text-center p-2">
+              <div className="text-2xl font-extrabold text-emerald-400">{plannerWorkers.length}</div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Total Workers</div>
             </div>
-          )}
-        </div>
+            <div className="text-center p-2 sm:border-x border-emerald-900/30">
+              <div className="text-2xl font-extrabold text-teal-400">
+                {plannerWorkers.filter(w => w.status === 'ACTIVE' || w.employmentStatus === 'ACTIVE').length}
+              </div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Active Workers</div>
+            </div>
+            <div className="text-center p-2">
+              <div className="text-2xl font-extrabold text-amber-400">
+                {plannerWorkers.filter(w => w.status !== 'ACTIVE' && w.employmentStatus !== 'ACTIVE').length}
+              </div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Pending / Inactive</div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            
+            {/* Workforce Selection */}
+            <div className="space-y-4 border border-emerald-900/30 p-5 rounded-2xl bg-slate-950/40">
+              <h4 className="text-xs font-bold text-emerald-400 border-b border-emerald-900/30 pb-2.5 flex items-center gap-2 tracking-wide uppercase">Workforce</h4>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Primary Worker *</label>
+                <select value={manualWorkerId} onChange={e => setManualWorkerId(e.target.value)} onFocus={() => fetchPlannerMetadata()} required
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2310b981%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[right_12px_center] bg-no-repeat pr-10">
+                  <option value="" className="bg-slate-900 text-slate-100">Select Worker</option>
+                  {plannerWorkers.map(w => (
+                    <option key={w.id || w._id} value={w.id || w._id} className="bg-slate-900 text-slate-100">{w.name ? `${w.name} (${w.email})` : w.email} {w.employeeCode ? `[${w.employeeCode}]` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Partner Worker (Optional)</label>
+                <select value={manualPartnerId} onChange={e => setManualPartnerId(e.target.value)} onFocus={() => fetchPlannerMetadata()}
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2310b981%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[right_12px_center] bg-no-repeat pr-10">
+                  <option value="" className="bg-slate-900 text-slate-100">Select Partner</option>
+                  {plannerWorkers.map(w => (
+                    <option key={w.id || w._id} value={w.id || w._id} className="bg-slate-900 text-slate-100">{w.name ? `${w.name} (${w.email})` : w.email} {w.employeeCode ? `[${w.employeeCode}]` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Driver Selection</label>
+                <select value={manualDriverId} onChange={e => setManualDriverId(e.target.value)} onFocus={() => fetchPlannerMetadata()} required
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2310b981%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[right_12px_center] bg-no-repeat pr-10">
+                  <option value="" className="bg-slate-900 text-slate-100">Select Driver</option>
+                  {plannerWorkers.map(w => (
+                    <option key={w.id || w._id} value={w.id || w._id} className="bg-slate-900 text-slate-100">{w.name ? `${w.name} (${w.email})` : w.email} {w.employeeCode ? `[${w.employeeCode}]` : ''}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Geography Selection */}
+            <div className="space-y-4 border border-emerald-900/30 p-5 rounded-2xl bg-slate-950/40">
+              <h4 className="text-xs font-bold text-emerald-400 border-b border-emerald-900/30 pb-2.5 flex items-center gap-2 tracking-wide uppercase">Geography</h4>
+              <CascadingLocationFilter
+                layout="vertical"
+                onLocationChange={(loc) => {
+                  setManualCityId(loc.cityId || '');
+                  setManualWardId(loc.wardId || '');
+                  setManualAreaId(loc.areaId || '');
+                  setManualZoneId(loc.zoneId || '');
+                }}
+              />
+            </div>
+
+            {/* Logistics Selection */}
+            <div className="space-y-4 border border-emerald-900/30 p-5 rounded-2xl bg-slate-950/40">
+              <h4 className="text-xs font-bold text-emerald-400 border-b border-emerald-900/30 pb-2.5 flex items-center gap-2 tracking-wide uppercase">Logistics</h4>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Waste Category</label>
+                <select value={manualWasteType} onChange={e => setManualWasteType(e.target.value)} required
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2310b981%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[right_12px_center] bg-no-repeat pr-10">
+                  {['DRY', 'WET', 'MIXED', 'PLASTIC', 'GLASS', 'PAPER', 'E_WASTE', 'HAZARDOUS'].map(w => <option key={w} value={w} className="bg-slate-900 text-slate-100">{w}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Vehicle Assignment</label>
+                <select value={manualVehicleId} onChange={e => setManualVehicleId(e.target.value)} required
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2310b981%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[right_12px_center] bg-no-repeat pr-10">
+                  <option value="" className="bg-slate-900 text-slate-100">Select Vehicle</option>
+                  {plannerVehicles.map(v => (
+                    <option key={v.id} value={v.id} className="bg-slate-900 text-slate-100">{v.vehicleCode} - {v.status} ({v.capacityKg} kg)</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Schedule Date</label>
+                <input type="date" value={manualDate} onChange={e => setManualDate(e.target.value)} required
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Priority</label>
+                <select value={manualPriority} onChange={e => setManualPriority(e.target.value)} required
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2310b981%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[right_12px_center] bg-no-repeat pr-10">
+                  {['LOW', 'NORMAL', 'HIGH', 'URGENT', 'CRITICAL'].map(p => <option key={p} value={p} className="bg-slate-900 text-slate-100">{p}</option>)}
+                </select>
+              </div>
+            </div>
+            
+            {/* Extended Operations */}
+            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4 border border-emerald-900/30 p-5 rounded-2xl bg-slate-950/40">
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Shift Selection</label>
+                <select value={manualShiftId} onChange={e => {
+                  setManualShiftId(e.target.value);
+                  const sh = plannerShifts.find(s => s.id === e.target.value);
+                  if (sh) { setManualStartTime(sh.startTime); setManualEndTime(sh.endTime); }
+                }} required className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2310b981%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[right_12px_center] bg-no-repeat pr-10">
+                  <option value="" className="bg-slate-900 text-slate-100">Select Shift</option>
+                  {plannerShifts.map(s => <option key={s.id} value={s.id} className="bg-slate-900 text-slate-100">{s.name} ({s.startTime}–{s.endTime})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Custom Start Time</label>
+                <input type="time" value={manualStartTime} onChange={e => setManualStartTime(e.target.value)}
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Custom End Time</label>
+                <input type="time" value={manualEndTime} onChange={e => setManualEndTime(e.target.value)}
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Est. Bin Count</label>
+                <input type="number" placeholder="Optional" value={manualEstBinCount} onChange={e => setManualEstBinCount(e.target.value)}
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Est. Duration (mins)</label>
+                <input type="number" placeholder="Optional" value={manualEstDuration} onChange={e => setManualEstDuration(e.target.value)}
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-emerald-300/90 tracking-wide mb-1.5 uppercase">Notes / Instructions</label>
+                <input type="text" placeholder="e.g. Heavy traffic route" value={manualNotes} onChange={e => setManualNotes(e.target.value)}
+                  className="w-full h-11 px-3.5 py-2.5 bg-slate-950/90 border border-slate-800 hover:border-emerald-700/60 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs font-medium text-slate-100 transition-all outline-none" />
+              </div>
+            </div>
+
+          </div>
+
+          <div className="flex justify-end pt-3">
+            <button type="submit" disabled={isSubmitting}
+              className="w-full md:w-auto h-12 px-8 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.99] text-white font-bold tracking-wider rounded-xl shadow-lg shadow-emerald-950/40 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none cursor-pointer text-xs uppercase">
+              {isSubmitting ? 'Validating & Planning...' : 'Save Manual Assignment'}
+            </button>
+          </div>
+        </form>
       )}
 
       {/* ────── TAB: Assignments ────── */}
       {activeTab === 'assignments' && (
         <div className="space-y-6">
-          {/* Date filter */}
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-slate-400">View date:</label>
+          <div className="flex items-center gap-3 text-xs">
+            <label className="text-slate-400">View date:</label>
             <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-emerald-500/50" />
+              className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-850 text-slate-100 focus:outline-none" />
             <button onClick={() => fetchAssignments(filterDate)}
-              className="px-4 py-1.5 rounded-lg text-xs font-medium border border-slate-700 hover:border-emerald-500/40 hover:text-emerald-400 transition">
+              className="px-4 py-1.5 rounded-lg border border-slate-800 hover:text-emerald-450 transition">
               Refresh
             </button>
           </div>
@@ -363,62 +631,48 @@ export default function AssignmentsManagementPage() {
           {isLoadingAssignments ? (
             <div className="p-12 text-center text-slate-500 text-sm">Loading assignments...</div>
           ) : assignments.length === 0 ? (
-            <div className="p-12 text-center rounded-2xl border border-slate-800 bg-slate-900/40">
-              <div className="text-4xl mb-3">📋</div>
-              <p className="text-slate-400 text-sm">No assignments found for {filterDate}. Run generation above.</p>
+            <div className="p-12 text-center rounded-2xl border border-slate-800 bg-slate-900/40 text-xs">
+              <p className="text-slate-400">No assignments found for {filterDate}. Please run the planner above.</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 text-xs">
               {assignments.map(a => (
-                <div key={a.id} className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+                <div key={a.id} className="rounded-2xl border border-slate-850 bg-slate-900/40 overflow-hidden">
                   <div className="px-6 py-4 flex items-center gap-4">
-                    {/* Waste type badge */}
                     <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${WASTE_COLORS[a.wasteType] || WASTE_COLORS.OTHER}`}>
                       {a.wasteType}
                     </span>
-
-                    {/* Main info */}
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-slate-200">
-                        {a.team?.name ?? 'Unassigned Team'} → {a.serviceZone?.name ?? '—'}
+                      <div className="text-sm font-semibold text-slate-250">
+                        {a.team?.name || a.primaryWorker?.user?.name || a.driver?.user?.name || 'Unassigned'} • {a.serviceZone?.name ?? '-'}
                       </div>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {new Date(a.assignmentDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        {new Date(a.assignmentDate).toLocaleDateString()}
                         {a.shift && ` · ${a.shift.name} (${a.shift.startTime}–${a.shift.endTime})`}
                       </div>
                     </div>
 
-                    {/* Targets count */}
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-slate-200">{a._count?.targets ?? 0}</div>
-                      <div className="text-xs text-slate-500">targets</div>
-                    </div>
-
-                    {/* Status */}
                     <span className={`px-2 py-0.5 rounded-md text-xs font-medium border ${STATUS_STYLES[a.status]}`}>
                       {a.status}
                     </span>
 
-                    {/* Expand */}
                     <button
                       onClick={() => setExpandedAssignment(expandedAssignment === a.id ? null : a.id)}
-                      className="p-1.5 rounded-lg border border-slate-700 hover:border-slate-600 transition text-slate-400 text-xs"
+                      className="p-1.5 rounded-lg border border-slate-700 text-slate-400 text-xs"
                     >
                       {expandedAssignment === a.id ? '▲' : '▼'}
                     </button>
                   </div>
 
-                  {/* Expanded targets */}
                   {expandedAssignment === a.id && (
-                    <div className="border-t border-slate-800 px-6 py-4">
+                    <div className="border-t border-slate-850 px-6 py-4">
                       {!a.targets || a.targets.length === 0 ? (
-                        <p className="text-xs text-slate-500">No targets loaded. Fetch with targets included.</p>
+                        <p className="text-slate-500 text-[10px]">No collection stops snapshotted.</p>
                       ) : (
-                        <div className="space-y-1">
-                          <p className="text-xs text-slate-500 mb-2">Collection point targets:</p>
+                        <div className="space-y-1.5">
                           {a.targets.map(t => (
-                            <div key={t.id} className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-slate-800/40 text-sm">
-                              <span className="text-slate-300">{t.collectionPoint?.address || t.collectionPointId}</span>
+                            <div key={t.id} className="flex items-center justify-between py-1.5 px-3 rounded bg-slate-950/20 border border-slate-900 text-slate-300">
+                              <span>{t.collectionPoint?.address || 'Anonymous Point'}</span>
                               <span className="text-xs text-emerald-400">{t.eligibleBinCount} bin(s)</span>
                             </div>
                           ))}
@@ -438,111 +692,51 @@ export default function AssignmentsManagementPage() {
         <div className="space-y-6">
           <div className="flex justify-end">
             <button onClick={() => { setShowRespForm(!showRespForm); setErrorMsg(''); setSuccessMsg(''); }}
-              className="px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 hover:opacity-90 active:scale-95 transition shadow-lg shadow-emerald-500/20">
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-slate-100 transition">
               {showRespForm ? 'Cancel' : '+ Add Responsibility'}
             </button>
           </div>
 
-          {/* Form */}
           {showRespForm && (
-            <form onSubmit={handleCreateResponsibility}
-              className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur space-y-4">
-              <h2 className="text-base font-semibold text-slate-200">Assign Team Responsibility</h2>
-              <p className="text-xs text-slate-500">
-                A responsibility links a team to a service zone for specific waste types. The assignment engine uses this to build daily plans.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={handleCreateResponsibility} className="p-6 rounded-xl border border-slate-850 bg-slate-900/20 space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Team</label>
+                  <label className="block text-slate-400 mb-1">Team</label>
                   <select value={respTeamId} onChange={e => setRespTeamId(e.target.value)} required
-                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-emerald-500/50">
-                    <option value="">— Select team —</option>
-                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    className="w-full p-2 bg-slate-950 border border-slate-850 rounded text-slate-200">
+                    <option value="">Select Team</option>
+                    {teams.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Service Zone</label>
+                  <label className="block text-slate-400 mb-1">Service Zone</label>
                   <select value={respZoneId} onChange={e => setRespZoneId(e.target.value)} required
-                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-emerald-500/50">
-                    <option value="">— Select zone —</option>
-                    {zones.map(z => <option key={z.id} value={z.id}>{z.name}{z.area ? ` (${z.area.name})` : ''}</option>)}
+                    className="w-full p-2 bg-slate-950 border border-slate-850 rounded text-slate-200">
+                    <option value="">Select Zone</option>
+                    {zones.map(z => (
+                      <option key={z.id} value={z.id}>{z.name}</option>
+                    ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">Effective From</label>
-                  <input type="date" value={respEffFrom} onChange={e => setRespEffFrom(e.target.value)} required
-                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-emerald-500/50" />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">Effective Until (optional)</label>
-                  <input type="date" value={respEffUntil} onChange={e => setRespEffUntil(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-emerald-500/50" />
-                </div>
               </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-2">Waste Types</label>
-                <div className="flex flex-wrap gap-2">
-                  {WASTE_TYPES.map(wt => (
-                    <button key={wt} type="button" onClick={() => toggleWasteType(wt)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                        respWasteTypes.includes(wt)
-                          ? `${WASTE_COLORS[wt]} font-semibold`
-                          : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
-                      }`}>
-                      {wt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <button type="submit" disabled={isSubmitting || respWasteTypes.length === 0}
-                  className="px-5 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 hover:opacity-90 transition disabled:opacity-50">
-                  {isSubmitting ? 'Creating...' : 'Create Responsibility'}
-                </button>
-              </div>
+              <button type="submit" className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-slate-100 font-bold rounded">
+                Save Responsibility
+              </button>
             </form>
           )}
 
-          {/* Responsibilities list */}
-          {isLoadingResp ? (
-            <div className="p-12 text-center text-slate-500 text-sm">Loading responsibilities...</div>
-          ) : responsibilities.length === 0 ? (
-            <div className="p-12 text-center rounded-2xl border border-slate-800 bg-slate-900/40">
-              <div className="text-4xl mb-3">🔗</div>
-              <p className="text-slate-400 text-sm">
-                No team responsibilities defined. Add one to enable daily assignment generation.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-800 text-sm font-semibold text-slate-200">
-                Team Responsibilities ({responsibilities.length})
+          <div className="space-y-2 text-xs">
+            {responsibilities.map(r => (
+              <div key={r.id} className="p-4 rounded-xl border border-slate-850 bg-slate-950/20 flex justify-between items-center">
+                <div>
+                  <span className="font-bold text-slate-200 block">{r.team?.name}</span>
+                  <span className="text-[10px] text-slate-500">Zone: {r.serviceZone?.name}</span>
+                </div>
               </div>
-              <div className="divide-y divide-slate-800/50">
-                {responsibilities.map(r => (
-                  <div key={r.id} className="px-6 py-4 flex items-center gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-slate-200">
-                        {r.team?.name ?? r.teamId} → {r.serviceZone?.name ?? r.serviceZoneId}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {r.serviceZone?.area?.name && `Area: ${r.serviceZone.area.name} · `}
-                        From {new Date(r.effectiveFrom).toLocaleDateString()}
-                        {r.effectiveUntil ? ` until ${new Date(r.effectiveUntil).toLocaleDateString()}` : ' (ongoing)'}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1 justify-end">
-                      {r.wasteTypes.map(wt => (
-                        <span key={wt} className={`px-2 py-0.5 rounded text-xs font-medium border ${WASTE_COLORS[wt] || WASTE_COLORS.OTHER}`}>
-                          {wt}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateWorkerDto } from './dto/create-worker.dto';
 import { WorkerEmploymentStatus, UserRole, UserStatus } from '@prisma/client';
+import { realtimeEventEmitter } from '../realtime/realtime.event-emitter';
 import { hashPassword } from '../common/utils/crypto.util';
 
 @Injectable()
@@ -80,6 +81,7 @@ export class WorkforceService {
       include: {
         user: {
           select: {
+            id: true,
             email: true,
             status: true,
             role: true,
@@ -93,12 +95,20 @@ export class WorkforceService {
       id: p.id,
       userId: p.userId,
       email: p.user.email,
+      employeeId: p.employeeCode,
       employeeCode: p.employeeCode,
       employmentStatus: p.employmentStatus,
       phone: p.phone,
       joinedAt: p.joinedAt,
+      hireDate: p.joinedAt,
       createdAt: p.createdAt,
-      userStatus: p.user.status,
+      specializations: ['DRY', 'WET', 'E_WASTE'],
+      user: {
+        id: p.user.id,
+        email: p.user.email,
+        role: p.user.role,
+        status: p.user.status,
+      },
     }));
   }
 
@@ -146,8 +156,28 @@ export class WorkforceService {
         data: { status: newCtxUserStatus },
       });
 
+      if (status === WorkerEmploymentStatus.ACTIVE || status === WorkerEmploymentStatus.SUSPENDED) {
+        await tx.notification.create({
+          data: {
+            userId: profile.userId,
+            title: `Worker Account ${status === WorkerEmploymentStatus.ACTIVE ? 'Approved' : 'Suspended'}`,
+            body: `Your worker account has been ${status === WorkerEmploymentStatus.ACTIVE ? 'approved and activated' : 'suspended'}.`,
+            type: status === WorkerEmploymentStatus.ACTIVE ? 'INFO' : 'ALERT',
+          }
+        });
+      }
+
       return upProfile;
     });
+
+    if (status === WorkerEmploymentStatus.ACTIVE || status === WorkerEmploymentStatus.SUSPENDED) {
+      realtimeEventEmitter.emit('notification', {
+        userId: profile.userId,
+        title: `Worker Account ${status === WorkerEmploymentStatus.ACTIVE ? 'Approved' : 'Suspended'}`,
+        body: `Your worker account has been ${status === WorkerEmploymentStatus.ACTIVE ? 'approved and activated' : 'suspended'}.`,
+        type: status === WorkerEmploymentStatus.ACTIVE ? 'INFO' : 'ALERT',
+      });
+    }
 
     await this.auditService.log(adminId, 'WORKER_STATUS_CHANGED', ip, ua, {
       workerId: id,

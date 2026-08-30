@@ -12,9 +12,13 @@ interface Worker {
 
 interface TeamMember {
   id: string;
-  workerProfileId: string;
-  joinedAt: string;
-  leftAt: string | null;
+  workerProfileId?: string;
+  workerId?: string;
+  role?: string;
+  joinedAt?: string;
+  leftAt?: string | null;
+  effectiveFrom?: string;
+  effectiveUntil?: string | null;
   worker?: {
     employeeId: string;
     user: { email: string };
@@ -49,6 +53,7 @@ export default function TeamsManagementPage() {
   // Add member modal
   const [memberModal, setMemberModal] = useState<string | null>(null); // teamId
   const [selectedWorkerId, setSelectedWorkerId] = useState('');
+  const [selectedRole, setSelectedRole] = useState('COLLECTOR');
   const [memberJoinDate, setMemberJoinDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Supervisor modal
@@ -112,12 +117,17 @@ export default function TeamsManagementPage() {
     try {
       const res = await apiRequest(`/teams/${memberModal}/members`, {
         method: 'POST',
-        body: JSON.stringify({ workerProfileId: selectedWorkerId, joinedAt: memberJoinDate }),
+        body: JSON.stringify({
+          workerId: selectedWorkerId,
+          role: selectedRole,
+          effectiveFrom: new Date(memberJoinDate).toISOString(),
+        }),
       });
       if (res.ok) {
         setSuccessMsg('Member added to team.');
         setMemberModal(null);
         setSelectedWorkerId('');
+        setSelectedRole('COLLECTOR');
         fetchTeams();
       } else {
         const data = await res.json();
@@ -289,12 +299,12 @@ export default function TeamsManagementPage() {
                     <p className="text-xs text-slate-500">No active members. Add workers to this team.</p>
                   ) : (
                     <div className="space-y-2">
-                      {team.memberships.filter(m => !m.leftAt).map(m => (
+                      {team.memberships.filter(m => !m.effectiveUntil || new Date(m.effectiveUntil) > new Date()).map(m => (
                         <div key={m.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-800/40">
                           <div>
-                            <span className="text-sm text-slate-200">{m.worker?.user.email || m.workerProfileId}</span>
+                            <span className="text-sm text-slate-200">{m.worker?.user.email || m.workerId}</span>
                             <span className="ml-2 text-xs text-slate-500">{m.worker?.employeeId}</span>
-                            <span className="ml-2 text-xs text-slate-600">since {new Date(m.joinedAt).toLocaleDateString()}</span>
+                            <span className="ml-2 text-xs text-slate-600">({m.role}) since {m.effectiveFrom ? new Date(m.effectiveFrom).toLocaleDateString() : 'N/A'}</span>
                           </div>
                           <button
                             onClick={() => handleRemoveMember(m.id)}
@@ -330,6 +340,18 @@ export default function TeamsManagementPage() {
                   {workers.map(w => (
                     <option key={w.id} value={w.id}>{w.user.email} ({w.employeeId})</option>
                   ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Role</label>
+                <select
+                  value={selectedRole}
+                  onChange={e => setSelectedRole(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-emerald-500/50"
+                >
+                  <option value="COLLECTOR">Collector</option>
+                  <option value="DRIVER">Driver</option>
+                  <option value="TEAM_LEAD">Team Lead</option>
                 </select>
               </div>
               <div>

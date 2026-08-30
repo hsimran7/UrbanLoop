@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { AppController } from './app.controller';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { AuditModule } from './audit/audit.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
@@ -15,13 +17,21 @@ import { TeamsModule } from './teams/teams.module';
 import { ShiftsModule } from './shifts/shifts.module';
 import { ZonesModule } from './zones/zones.module';
 import { AssignmentsModule } from './assignments/assignments.module';
-
+import { FacilitiesModule } from './facilities/facilities.module';
+import { LoadsModule } from './loads/loads.module';
+import { RequestsModule } from './requests/requests.module';
+import { FleetModule } from './fleet/fleet.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { AIModule } from './ai/ai.module';
+import { RealtimeModule } from './realtime/realtime.module';
+import { DepartmentsModule } from './departments/departments.module';
+import { MetaModule } from './meta/meta.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([
       {
         ttl: 60000,
-        limit: 10,
+        limit: 1000,
       },
     ]),
     PrismaModule,
@@ -38,7 +48,18 @@ import { AssignmentsModule } from './assignments/assignments.module';
     ShiftsModule,
     ZonesModule,
     AssignmentsModule,
+    FacilitiesModule,
+    LoadsModule,
+    RequestsModule,
+    FleetModule,
+    AnalyticsModule,
+    AIModule,
+    RealtimeModule,
+    DepartmentsModule,
+    MetaModule,
+    DashboardModule,
   ],
+  controllers: [AppController],
   providers: [
     {
       provide: APP_GUARD,

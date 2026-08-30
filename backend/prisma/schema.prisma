@@ -1,10 +1,1392 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
+model User {
+  id                       String                    @id @default(uuid())
+  email                    String                    @unique
+  passwordHash             String
+  role                     UserRole                  @default(CITIZEN)
+  status                   UserStatus                @default(PENDING)
+  emailVerified            Boolean                   @default(false)
+  verificationTokenHash    String?                   @unique
+  verificationTokenExpires DateTime?
+  passwordResetTokenHash   String?                   @unique
+  passwordResetExpires     DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  name                     String?
+  phone                    String?
+  auditLogs                AuditLog[]
+  supervisedTeams          CollectionTeam[]          @relation("TeamSupervisor")
+  departmentMemberships    DepartmentMembership[]
+  driverProfile            DriverProfile?
+  facilityStaffAssignments FacilityStaffAssignment[]
+  properties               Property[]
+  refreshTokens            RefreshToken[]
+  assignedRequests         ServiceRequest[]          @relation("RequestAssignee")
+  submittedRequests        ServiceRequest[]          @relation("RequestCreator")
+  workerProfile            WorkerProfile?
+  notifications            Notification[]
+}
+
+model RefreshToken {
+  id            String        @id @default(uuid())
+  tokenHash     String        @unique
+  userId        String
+  expiresAt     DateTime
+  createdAt     DateTime      @default(now())
+  revoked       Boolean       @default(false)
+  replacedById  String?       @unique
+  replacedBy    RefreshToken? @relation("TokenRotation", fields: [replacedById], references: [id])
+  replacedToken RefreshToken? @relation("TokenRotation")
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  ipAddress String?
+  userAgent String?
+  details   String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id             String    @id @default(uuid())
+  userId         String
+  type           String    // ASSIGNMENT_NEW, EMERGENCY_TASK, AREA_COMPLETED, SYSTEM
+  title          String
+  body           String
+  data           Json?     // arbitrary payload (assignmentId, areaName, etc.)
+  isRead         Boolean   @default(false)
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+model State {
+  id        String     @id @default(uuid())
+  name      String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  districts District[]
+}
+
+model District {
+  id        String   @id @default(uuid())
+  name      String
+  stateId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  state     State    @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  cities    City[]
+
+  @@unique([stateId, name])
+}
+
+model City {
+  id         String   @id @default(uuid())
+  name       String   @unique
+  districtId String
+  timezone   String   @default("Asia/Kolkata")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  district   District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  wards      Ward[]
+}
+
+model Ward {
+  id        String   @id @default(uuid())
+  number    Int
+  name      String
+  cityId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  areas           Area[]
+  city            City                       @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  weeklySchedules WeeklyCollectionSchedule[]
+
+  @@unique([cityId, number])
+}
+
+model Area {
+  id               String               @id @default(uuid())
+  name             String
+  wardId           String
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  ward             Ward                 @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  collectionPoints CollectionPoint[]
+  schedules        CollectionSchedule[]
+  dailyAssignments DailyAssignment[]
+  properties       Property[]
+  routes           Route[]
+  exceptions       ScheduleException[]
+  serviceRequests  ServiceRequest[]
+  serviceZones     ServiceZone[]
+
+  @@unique([wardId, name])
+}
+
+model Property {
+  id               String            @id @default(uuid())
+  address          String
+  latitude         Float
+  longitude        Float
+  ownerId          String
+  areaId           String
+  streetId         String?
+  status           PropertyStatus    @default(PENDING)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  collectionPoints CollectionPoint[]
+  area             Area              @relation(fields: [areaId], references: [id])
+  street           Street?           @relation(fields: [streetId], references: [id])
+  owner            User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  routeStops       RouteStop[]
+  serviceRequests  ServiceRequest[]
+  schedules        CollectionSchedule[]
+}
+
+model CollectionPoint {
+  id                     String                  @id @default(uuid())
+  name                   String
+  latitude               Float
+  longitude              Float
+  propertyId             String?
+  areaId                 String
+  status                 CollectionPointStatus   @default(ACTIVE)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  serviceZoneId          String?
+  streetId               String?
+  bins                   Bin[]
+  collectionEvents       CollectionEvent[]
+  area                   Area                    @relation(fields: [areaId], references: [id])
+  property               Property?               @relation(fields: [propertyId], references: [id])
+  serviceZone            ServiceZone?            @relation(fields: [serviceZoneId], references: [id])
+  street                 Street?                 @relation(fields: [streetId], references: [id])
+  dailyAssignmentTargets DailyAssignmentTarget[]
+  routeStops             RouteStop[]
+  serviceRequests        ServiceRequest[]
+}
+
+model Bin {
+  id                     String                  @id @default(uuid())
+  qrCodeId               String                  @unique
+  type                   BinType
+  status                 BinStatus               @default(EMPTY)
+  verificationStatus     PropertyStatus          @default(VERIFIED)
+  condition              BinCondition            @default(GOOD)
+  collectionPointId      String
+  currentFillLevel       Int                     @default(0)
+  lastTelemetryAt        DateTime?
+  telemetryStatus        TelemetryStatus         @default(NEVER_CONNECTED)
+  lastEmptiedAt          DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  collectionPoint        CollectionPoint         @relation(fields: [collectionPointId], references: [id], onDelete: Cascade)
+  alerts                 BinAlert[]
+  telemetries            BinTelemetry[]
+  collectionEvents       CollectionEvent[]
+  dailyAssignmentTargets DailyAssignmentTarget[]
+  device                 IoTDevice?
+  serviceRequests        ServiceRequest[]
+  schedules              CollectionSchedule[]
+
+  @@index([lastTelemetryAt])
+  @@index([currentFillLevel])
+  @@index([telemetryStatus])
+}
+
+model IoTDevice {
+  id               String          @id @default(uuid())
+  deviceIdentifier String          @unique
+  binId            String          @unique
+  status           IoTDeviceStatus @default(ACTIVE)
+  credentialHash   String
+  lastSeenAt       DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  telemetries      BinTelemetry[]
+  bin              Bin             @relation(fields: [binId], references: [id], onDelete: Cascade)
+}
+
+model BinTelemetry {
+  id             String          @id @default(uuid())
+  binId          String
+  fillLevel      Int
+  batteryLevel   Int?
+  temperature    Float?
+  signalStrength Int?
+  recordedAt     DateTime
+  receivedAt     DateTime        @default(now())
+  source         TelemetrySource
+  deviceId       String?
+  eventId        String?
+  createdAt      DateTime        @default(now())
+  bin            Bin             @relation(fields: [binId], references: [id], onDelete: Cascade)
+  device         IoTDevice?      @relation(fields: [deviceId], references: [id])
+
+  @@unique([deviceId, eventId])
+  @@index([binId, recordedAt])
+}
+
+model BinAlert {
+  id          String        @id @default(uuid())
+  binId       String
+  type        BinAlertType
+  severity    AlertSeverity
+  status      AlertStatus
+  triggeredAt DateTime      @default(now())
+  resolvedAt  DateTime?
+  latestValue Float?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  bin         Bin           @relation(fields: [binId], references: [id], onDelete: Cascade)
+}
+
+model CollectionSchedule {
+  id               String              @id @default(uuid())
+  areaId           String
+  wasteType        BinType
+  dayOfWeek        DayOfWeek
+  startTime        String
+  endTime          String
+  status           ScheduleStatus      @default(ACTIVE)
+  effectiveFrom    DateTime
+  effectiveUntil   DateTime?
+  createdBy        String
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  propertyId       String?
+  binId            String?
+  area             Area                @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  dailyAssignments DailyAssignment[]
+  exceptions       ScheduleException[]
+  property         Property?           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  bin              Bin?                @relation(fields: [binId], references: [id], onDelete: Cascade)
+}
+
+model ScheduleException {
+  id                   String              @id @default(uuid())
+  areaId               String
+  scheduleId           String?
+  originalDate         DateTime
+  replacementDate      DateTime?
+  replacementStartTime String?
+  replacementEndTime   String?
+  reason               String
+  type                 ExceptionType
+  wasteType            BinType?
+  createdBy            String
+  createdAt            DateTime            @default(now())
+  dailyAssignments     DailyAssignment[]
+  area                 Area                @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  schedule             CollectionSchedule? @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+}
+
+model WorkerProfile {
+  id               String                  @id @default(uuid())
+  userId           String                  @unique
+  employeeCode     String                  @unique
+  employmentStatus WorkerEmploymentStatus  @default(ACTIVE)
+  phone            String?
+  joinedAt         DateTime                @default(now())
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  memberships         TeamMembership[]
+  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shiftAssignments    WorkerShiftAssignment[]
+  primaryAssignments  DailyAssignment[]       @relation("PrimaryWorker")
+  partnerAssignments  DailyAssignment[]       @relation("PartnerWorker")
+  driverAssignments   DailyAssignment[]       @relation("DriverWorker")
+}
+
+model CollectionTeam {
+  id               String                  @id @default(uuid())
+  name             String
+  code             String                  @unique
+  status           TeamStatus              @default(ACTIVE)
+  supervisorId     String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  supervisor       User?                   @relation("TeamSupervisor", fields: [supervisorId], references: [id])
+  assignments      DailyAssignment[]
+  routeAssignments DailyRouteAssignment[]
+  serviceRequests  ServiceRequest[]
+  memberships      TeamMembership[]
+  responsibilities TeamServiceAssignment[]
+  wasteLoads       WasteLoad[]
+}
+
+model TeamMembership {
+  id             String         @id @default(uuid())
+  teamId         String
+  workerId       String
+  role           TeamMemberRole
+  effectiveFrom  DateTime
+  effectiveUntil DateTime?
+  createdAt      DateTime       @default(now())
+  team           CollectionTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  worker         WorkerProfile  @relation(fields: [workerId], references: [id], onDelete: Cascade)
+}
+
+model Shift {
+  id               String                  @id @default(uuid())
+  name             String
+  startTime        String
+  endTime          String
+  cutoffMinutes    Int                     @default(60)
+  status           ShiftStatus             @default(ACTIVE)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  dailyAssignments DailyAssignment[]
+  assignments      WorkerShiftAssignment[]
+  weeklySchedules  WeeklyCollectionSchedule[]
+}
+
+model WorkerShiftAssignment {
+  id        String            @id @default(uuid())
+  workerId  String
+  shiftId   String
+  workDate  DateTime
+  status    WorkerShiftStatus @default(ASSIGNED)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  shift     Shift             @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  worker    WorkerProfile     @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, shiftId, workDate])
+}
+
+model ServiceZone {
+  id               String                  @id @default(uuid())
+  areaId           String
+  name             String
+  code             String                  @unique
+  status           ServiceZoneStatus       @default(ACTIVE)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  collectionPoints CollectionPoint[]
+  assignments      DailyAssignment[]
+  streets          Street[]
+  area             Area                       @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  responsibilities TeamServiceAssignment[]
+  weeklySchedules  WeeklyCollectionSchedule[]
+}
+
+model Street {
+  id               String               @id @default(uuid())
+  name             String
+  serviceZoneId    String
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  serviceZone      ServiceZone          @relation(fields: [serviceZoneId], references: [id], onDelete: Cascade)
+  collectionPoints CollectionPoint[]
+  properties       Property[]
+
+  @@unique([serviceZoneId, name])
+}
+
+model TeamServiceAssignment {
+  id             String                      @id @default(uuid())
+  teamId         String
+  serviceZoneId  String
+  wasteType      BinType?
+  effectiveFrom  DateTime
+  effectiveUntil DateTime?
+  status         TeamServiceAssignmentStatus @default(ACTIVE)
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  serviceZone    ServiceZone                 @relation(fields: [serviceZoneId], references: [id], onDelete: Cascade)
+  team           CollectionTeam              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+model DailyAssignment {
+  id                  String                  @id @default(uuid())
+  assignmentDate      DateTime
+  teamId              String?
+  primaryWorkerId     String?
+  partnerWorkerId     String?
+  driverId            String?
+  vehicleId           String?
+  serviceZoneId       String
+  areaId              String
+  scheduleId          String?
+  scheduleExceptionId String?
+  wasteType           BinType
+  shiftId             String
+  status              AssignmentStatus        @default(CREATED)
+  generationSource    GenerationSource        @default(AUTOMATIC)
+  generatedAt         DateTime                @default(now())
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  startedAt           DateTime?
+  startedById         String?
+  completedAt         DateTime?
+  completedById       String?
+  
+  // Manual Planner Fields
+  priority            AssignmentPriority      @default(NORMAL)
+  notes               String?
+  estimatedDuration   Int?
+  estimatedBinCount   Int?
+
+  collectionEvents    CollectionEvent[]
+  area                Area                    @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  scheduleException   ScheduleException?      @relation(fields: [scheduleExceptionId], references: [id])
+  schedule            CollectionSchedule?     @relation(fields: [scheduleId], references: [id])
+  serviceZone         ServiceZone             @relation(fields: [serviceZoneId], references: [id], onDelete: Cascade)
+  shift               Shift                   @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  team                CollectionTeam?         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  primaryWorker       WorkerProfile?          @relation("PrimaryWorker", fields: [primaryWorkerId], references: [id])
+  partnerWorker       WorkerProfile?          @relation("PartnerWorker", fields: [partnerWorkerId], references: [id])
+  driver              WorkerProfile?          @relation("DriverWorker", fields: [driverId], references: [id])
+  vehicle             Vehicle?                @relation(fields: [vehicleId], references: [id])
+  targets             DailyAssignmentTarget[]
+  wasteLoads          WasteLoad[]
+
+  @@unique([assignmentDate, teamId, serviceZoneId, shiftId, wasteType])
+}
+
+model DailyAssignmentTarget {
+  id                String            @id @default(uuid())
+  assignmentId      String
+  collectionPointId String
+  binId             String
+  status            TargetStatus      @default(PENDING)
+  addedReason       AddedReason       @default(SCHEDULED)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  collectedAt       DateTime?
+  collectedById     String?
+  collectionEvents  CollectionEvent[]
+  assignment        DailyAssignment   @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  bin               Bin               @relation(fields: [binId], references: [id], onDelete: Cascade)
+  collectionPoint   CollectionPoint   @relation(fields: [collectionPointId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, collectionPointId, binId])
+}
+
+model CollectionEvent {
+  id                 String                 @id @default(uuid())
+  assignmentId       String
+  targetId           String
+  binId              String
+  collectionPointId  String
+  workerId           String
+  teamId             String
+  eventType          CollectionEventType
+  occurredAt         DateTime
+  receivedAt         DateTime               @default(now())
+  latitude           Float?
+  longitude          Float?
+  locationAccuracy   Float?
+  notes              String?
+  reasonCode         String?
+  evidenceId         String?
+  clientEventId      String                 @unique
+  createdAt          DateTime               @default(now())
+  distanceFromTarget Float?
+  verificationLevel  CollectionVerification @default(UNVERIFIED)
+  assignment         DailyAssignment        @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  bin                Bin                    @relation(fields: [binId], references: [id], onDelete: Cascade)
+  collectionPoint    CollectionPoint        @relation(fields: [collectionPointId], references: [id], onDelete: Cascade)
+  target             DailyAssignmentTarget  @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  serviceRequests    ServiceRequest[]
+  corrections        SupervisorCorrection[] @relation("OriginalEvent")
+  wasteLoadItems     WasteLoadItem?
+}
+
+model CollectionEvidence {
+  id         String   @id @default(uuid())
+  storageKey String
+  mimeType   String
+  size       Int
+  uploadedBy String
+  createdAt  DateTime @default(now())
+  metadata   Json?
+}
+
+model SupervisorCorrection {
+  id               String          @id @default(uuid())
+  originalEventId  String
+  correctedById    String
+  correctionReason String
+  correctedAt      DateTime        @default(now())
+  correctedStatus  TargetStatus
+  createdAt        DateTime        @default(now())
+  originalEvent    CollectionEvent @relation("OriginalEvent", fields: [originalEventId], references: [id], onDelete: Cascade)
+}
+
+model WasteFacility {
+  id                 String                    @id @default(uuid())
+  facilityCode       String                    @unique
+  name               String
+  facilityType       FacilityType
+  status             FacilityStatus            @default(ACTIVE)
+  latitude           Float
+  longitude          Float
+  address            String
+  dailyCapacityKg    Float?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  receipts           FacilityReceipt[]
+  staffAssignments   FacilityStaffAssignment[]
+  acceptedWasteTypes FacilityWasteType[]
+  transfers          WasteTransfer[]
+  weighingRecords    WeighingRecord[]
+}
+
+model FacilityWasteType {
+  id         String        @id @default(uuid())
+  facilityId String
+  wasteType  BinType
+  facility   WasteFacility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@unique([facilityId, wasteType])
+}
+
+model FacilityStaffAssignment {
+  id             String        @id @default(uuid())
+  userId         String
+  facilityId     String
+  role           String
+  effectiveFrom  DateTime
+  effectiveUntil DateTime?
+  status         String        @default("ACTIVE")
+  createdAt      DateTime      @default(now())
+  facility       WasteFacility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, facilityId])
+}
+
+model WasteLoad {
+  id              String              @id @default(uuid())
+  loadCode        String              @unique
+  assignmentId    String
+  teamId          String
+  wasteType       BinType
+  status          WasteLoadStatus     @default(OPEN)
+  createdBy       String
+  openedAt        DateTime            @default(now())
+  sealedAt        DateTime?
+  sealedBy        String?
+  sealCode        String?
+  deliveredAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  receipts        FacilityReceipt[]
+  custodyEvents   WasteCustodyEvent[]
+  assignment      DailyAssignment     @relation(fields: [assignmentId], references: [id])
+  team            CollectionTeam      @relation(fields: [teamId], references: [id])
+  items           WasteLoadItem[]
+  transfers       WasteTransfer[]
+  weighingRecords WeighingRecord[]
+}
+
+model WasteLoadItem {
+  id                 String          @id @default(uuid())
+  wasteLoadId        String
+  collectionEventId  String          @unique
+  assignmentTargetId String
+  binId              String
+  collectionPointId  String
+  addedAt            DateTime        @default(now())
+  collectionEvent    CollectionEvent @relation(fields: [collectionEventId], references: [id], onDelete: Cascade)
+  wasteLoad          WasteLoad       @relation(fields: [wasteLoadId], references: [id], onDelete: Cascade)
+}
+
+model WasteTransfer {
+  id                    String         @id @default(uuid())
+  wasteLoadId           String
+  destinationFacilityId String
+  status                TransferStatus @default(PLANNED)
+  dispatchedAt          DateTime?
+  dispatchedById        String?
+  arrivedAt             DateTime?
+  arrivedById           String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  facility              WasteFacility  @relation(fields: [destinationFacilityId], references: [id])
+  wasteLoad             WasteLoad      @relation(fields: [wasteLoadId], references: [id], onDelete: Cascade)
+}
+
+model WeighingRecord {
+  id             String            @id @default(uuid())
+  wasteLoadId    String
+  facilityId     String
+  grossWeightKg  Float
+  tareWeightKg   Float
+  netWeightKg    Float
+  weighingMethod WeighingMethod
+  weighedAt      DateTime          @default(now())
+  recordedBy     String
+  evidenceId     String?
+  createdAt      DateTime          @default(now())
+  receipts       FacilityReceipt[]
+  facility       WasteFacility     @relation(fields: [facilityId], references: [id])
+  wasteLoad      WasteLoad         @relation(fields: [wasteLoadId], references: [id], onDelete: Cascade)
+}
+
+model FacilityReceipt {
+  id                String                  @id @default(uuid())
+  receiptCode       String                  @unique
+  wasteLoadId       String
+  facilityId        String
+  weighingRecordId  String
+  status            ReceiptStatus
+  acceptedWeightKg  Float
+  rejectedWeightKg  Float
+  rejectionReason   String?
+  receivedBy        String
+  receivedAt        DateTime                @default(now())
+  notes             String?
+  createdAt         DateTime                @default(now())
+  facility          WasteFacility           @relation(fields: [facilityId], references: [id])
+  wasteLoad         WasteLoad               @relation(fields: [wasteLoadId], references: [id])
+  weighingRecord    WeighingRecord          @relation(fields: [weighingRecordId], references: [id], onDelete: Cascade)
+  processingRecords WasteProcessingRecord[]
+}
+
+model WasteProcessingRecord {
+  id                String            @id @default(uuid())
+  facilityReceiptId String
+  processType       ProcessType
+  inputWeightKg     Float
+  outputWeightKg    Float?
+  residueWeightKg   Float?
+  massBalanceStatus MassBalanceStatus
+  processedAt       DateTime          @default(now())
+  recordedBy        String
+  notes             String?
+  createdAt         DateTime          @default(now())
+  receipt           FacilityReceipt   @relation(fields: [facilityReceiptId], references: [id], onDelete: Cascade)
+}
+
+model WasteCustodyEvent {
+  id          String           @id @default(uuid())
+  wasteLoadId String
+  eventType   CustodyEventType
+  actorId     String
+  facilityId  String?
+  occurredAt  DateTime         @default(now())
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+  wasteLoad   WasteLoad        @relation(fields: [wasteLoadId], references: [id], onDelete: Cascade)
+}
+
+model Department {
+  id                 String                 @id @default(uuid())
+  code               String                 @unique
+  name               String
+  status             String                 @default("ACTIVE")
+  parentDepartmentId String?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  memberships        DepartmentMembership[]
+  serviceRequests    ServiceRequest[]
+}
+
+model DepartmentMembership {
+  id             String     @id @default(uuid())
+  departmentId   String
+  userId         String
+  membershipRole String
+  status         String     @default("ACTIVE")
+  effectiveFrom  DateTime
+  effectiveUntil DateTime?
+  createdAt      DateTime   @default(now())
+  department     Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, departmentId])
+}
+
+model ServiceRequestCategory {
+  id                  String                 @id @default(uuid())
+  code                String                 @unique
+  name                String
+  description         String
+  status              String                 @default("ACTIVE")
+  defaultPriority     ServiceRequestPriority @default(NORMAL)
+  defaultDepartmentId String?
+  slaPolicyId         String?
+  requiresLocation    Boolean                @default(false)
+  allowsAnonymous     Boolean                @default(false)
+  requiresEvidence    Boolean                @default(false)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  serviceRequests     ServiceRequest[]
+}
+
+model ServiceRequest {
+  id                   String                            @id @default(uuid())
+  requestCode          String                            @unique
+  createdByUserId      String?
+  categoryId           String
+  areaId               String
+  propertyId           String?
+  collectionPointId    String?
+  binId                String?
+  collectionEventId    String?
+  title                String
+  description          String
+  priority             ServiceRequestPriority            @default(NORMAL)
+  status               ServiceRequestStatus              @default(SUBMITTED)
+  source               ServiceRequestSource              @default(CITIZEN_PORTAL)
+  latitude             Float?
+  longitude            Float?
+  addressText          String?
+  assignedDepartmentId String?
+  assignedTeamId       String?
+  assignedUserId       String?
+  submittedAt          DateTime                          @default(now())
+  acknowledgedAt       DateTime?
+  workStartedAt        DateTime?
+  resolvedAt           DateTime?
+  closedAt             DateTime?
+  cancelledAt          DateTime?
+  createdAt            DateTime                          @default(now())
+  updatedAt            DateTime                          @updatedAt
+  area                 Area                              @relation(fields: [areaId], references: [id])
+  department           Department?                       @relation(fields: [assignedDepartmentId], references: [id])
+  team                 CollectionTeam?                   @relation(fields: [assignedTeamId], references: [id])
+  assignee             User?                             @relation("RequestAssignee", fields: [assignedUserId], references: [id])
+  bin                  Bin?                              @relation(fields: [binId], references: [id])
+  category             ServiceRequestCategory            @relation(fields: [categoryId], references: [id])
+  collectionEvent      CollectionEvent?                  @relation(fields: [collectionEventId], references: [id])
+  collectionPoint      CollectionPoint?                  @relation(fields: [collectionPointId], references: [id])
+  creator              User?                             @relation("RequestCreator", fields: [createdByUserId], references: [id])
+  property             Property?                         @relation(fields: [propertyId], references: [id])
+  assignmentsHistory   ServiceRequestAssignmentHistory[]
+  comments             ServiceRequestComment[]
+  escalations          ServiceRequestEscalation[]
+  events               ServiceRequestEvent[]
+  evidences            ServiceRequestEvidence[]
+  feedbacks            ServiceRequestFeedback?
+  sla                  ServiceRequestSLA?
+}
+
+model ServiceRequestAssignmentHistory {
+  id               String         @id @default(uuid())
+  serviceRequestId String
+  fromDepartmentId String?
+  toDepartmentId   String?
+  fromTeamId       String?
+  toTeamId         String?
+  fromUserId       String?
+  toUserId         String?
+  assignedBy       String
+  reason           String?
+  assignedAt       DateTime       @default(now())
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+}
+
+model SLAPolicy {
+  id                          String                 @id @default(uuid())
+  name                        String
+  priority                    ServiceRequestPriority @unique
+  acknowledgmentTargetMinutes Int
+  resolutionTargetMinutes     Int
+  escalationWarningMinutes    Int?
+  active                      Boolean                @default(true)
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+}
+
+model ServiceRequestSLA {
+  id                         String                   @id @default(uuid())
+  serviceRequestId           String                   @unique
+  slaPolicyId                String
+  startedAt                  DateTime
+  acknowledgmentDueAt        DateTime
+  resolutionDueAt            DateTime
+  acknowledgedAt             DateTime?
+  resolvedAt                 DateTime?
+  acknowledgmentBreached     Boolean                  @default(false)
+  resolutionBreached         Boolean                  @default(false)
+  pausedAt                   DateTime?
+  totalPausedDurationSeconds Int                      @default(0)
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
+  serviceRequest             ServiceRequest           @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+  pauses                     ServiceRequestSLAPause[]
+}
+
+model ServiceRequestSLAPause {
+  id                  String            @id @default(uuid())
+  serviceRequestSlaId String
+  reason              String
+  pausedAt            DateTime
+  resumedAt           DateTime?
+  pausedBy            String
+  resumedBy           String?
+  createdAt           DateTime          @default(now())
+  sla                 ServiceRequestSLA @relation(fields: [serviceRequestSlaId], references: [id], onDelete: Cascade)
+}
+
+model ServiceRequestEscalation {
+  id               String         @id @default(uuid())
+  serviceRequestId String
+  level            Int
+  reason           String
+  triggeredAt      DateTime       @default(now())
+  acknowledgedBy   String?
+  acknowledgedAt   DateTime?
+  createdAt        DateTime       @default(now())
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceRequestId, level])
+}
+
+model ServiceRequestEvent {
+  id               String         @id @default(uuid())
+  serviceRequestId String
+  eventType        String
+  actorId          String?
+  occurredAt       DateTime       @default(now())
+  metadata         Json?
+  createdAt        DateTime       @default(now())
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+}
+
+model ServiceRequestComment {
+  id               String            @id @default(uuid())
+  serviceRequestId String
+  authorId         String
+  visibility       CommentVisibility @default(PUBLIC)
+  message          String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime?         @updatedAt
+  serviceRequest   ServiceRequest    @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+}
+
+model ServiceRequestEvidence {
+  id               String         @id @default(uuid())
+  serviceRequestId String
+  uploadedBy       String
+  storageKey       String
+  mimeType         String
+  size             Int
+  evidenceType     String
+  createdAt        DateTime       @default(now())
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+}
+
+model ServiceRequestEvidenceMeta {
+  id String @id @default(uuid())
+}
+
+model ServiceRequestFeedback {
+  id               String         @id @default(uuid())
+  serviceRequestId String         @unique
+  citizenId        String
+  rating           Int
+  comment          String?
+  createdAt        DateTime       @default(now())
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+}
+
+model Depot {
+  id              String          @id @default(uuid())
+  code            String          @unique
+  name            String
+  latitude        Float
+  longitude       Float
+  vehicleCapacity Int
+  status          String          @default("ACTIVE")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  drivers         DriverProfile[]
+  vehicles        Vehicle[]
+}
+
+model DriverProfile {
+  id                String                 @id @default(uuid())
+  userId            String                 @unique
+  licenseNumber     String                 @unique
+  licenseExpiry     DateTime
+  phone             String
+  assignedDepotId   String?
+  assignedVehicleId String?
+  status            String                 @default("ACTIVE")
+  safetyScore       Float                  @default(100.0)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  routeAssignments  DailyRouteAssignment[]
+  depot             Depot?                 @relation(fields: [assignedDepotId], references: [id])
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shifts            DriverShift[]
+  inspections       PreTripInspection[]
+}
+
+model DriverShift {
+  id               String        @id @default(uuid())
+  driverId         String
+  shiftStart       DateTime
+  shiftEnd         DateTime
+  loginTime        DateTime?
+  logoutTime       DateTime?
+  breakTimeMinutes Int           @default(0)
+  overtimeMinutes  Int           @default(0)
+  attendanceStatus String        @default("ABSENT")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  driver           DriverProfile @relation(fields: [driverId], references: [id], onDelete: Cascade)
+}
+
+model PreTripInspection {
+  id               String        @id @default(uuid())
+  vehicleId        String
+  driverId         String
+  date             DateTime      @default(now())
+  brakesPassed     Boolean
+  tiresPassed      Boolean
+  lightsPassed     Boolean
+  hydraulicsPassed Boolean
+  fuelPassed       Boolean
+  batteryPassed    Boolean
+  cleanPassed      Boolean
+  result           String
+  notes            String?
+  inspectedAt      DateTime      @default(now())
+  driver           DriverProfile @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  vehicle          Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model Route {
+  id                String                 @id @default(uuid())
+  routeCode         String                 @unique
+  areaId            String
+  expectedDistance  Float
+  estimatedDuration Int
+  status            String                 @default("PLANNED")
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  routeAssignments  DailyRouteAssignment[]
+  area              Area                   @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  stops             RouteStop[]
+}
+
+model RouteStop {
+  id                String           @id @default(uuid())
+  routeId           String
+  stopOrder         Int
+  propertyId        String?
+  collectionPointId String?
+  expectedArrival   DateTime?
+  completed         Boolean          @default(false)
+  completedAt       DateTime?
+  status            String           @default("PENDING")
+  delayMinutes      Int              @default(0)
+  delayStatus       String           @default("ON_TIME")
+  collectionPoint   CollectionPoint? @relation(fields: [collectionPointId], references: [id])
+  property          Property?        @relation(fields: [propertyId], references: [id])
+  route             Route            @relation(fields: [routeId], references: [id], onDelete: Cascade)
+}
+
+model DailyRouteAssignment {
+  id           String         @id @default(uuid())
+  date         DateTime
+  routeId      String
+  vehicleId    String
+  driverId     String?
+  teamId       String?
+  status       String         @default("PLANNED")
+  dispatchedAt DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  driver       DriverProfile?  @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  route        Route          @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  team         CollectionTeam? @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  vehicle      Vehicle        @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model GPSTelemetry {
+  id               String   @id @default(uuid())
+  vehicleId        String
+  latitude         Float
+  longitude        Float
+  speed            Float
+  heading          Float
+  altitude         Float?
+  accuracy         Float?
+  ignitionStatus   Boolean  @default(false)
+  gpsSource        String   @default("SIMULATOR")
+  odometerSnapshot Float
+  timestamp        DateTime @default(now())
+  vehicle          Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model VehicleBreakdown {
+  id          String    @id @default(uuid())
+  vehicleId   String
+  reporterId  String
+  issueType   String
+  description String
+  status      String    @default("REPORTED")
+  reportedAt  DateTime  @default(now())
+  resolvedAt  DateTime?
+  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model FuelLog {
+  id           String   @id @default(uuid())
+  vehicleId    String
+  amountLitres Float
+  cost         Float
+  odometerKm   Float
+  filledAt     DateTime @default(now())
+  recordedBy   String
+  vehicle      Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model MaintenanceSchedule {
+  id                   String    @id @default(uuid())
+  vehicleId            String
+  serviceType          String
+  description          String
+  nextServiceDate      DateTime
+  lastServiceDate      DateTime?
+  cost                 Float?
+  status               String    @default("SCHEDULED")
+  replacedParts        String?
+  serviceProvider      String?
+  invoiceNumber        String?
+  serviceDurationHours Float?
+  warrantyExpiry       DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  vehicle              Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model Vehicle {
+  id                 String                 @id @default(uuid())
+  vehicleCode        String                 @unique
+  registrationNumber String                 @unique
+  vehicleType        VehicleType
+  manufacturer       String
+  model              String
+  year               Int
+  capacityKg         Float
+  compartmentType    String
+  fuelType           String
+  currentFuelLevel   Float                  @default(100.0)
+  odometerKm         Float                  @default(0.0)
+  status             VehicleStatus          @default(AVAILABLE)
+  latitude           Float?
+  longitude          Float?
+  heading            Float?
+  speed              Float?
+  depotId            String
+  assignedDriverId   String?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  routeAssignments   DailyRouteAssignment[]
+  fuelLogs           FuelLog[]
+  telemetries        GPSTelemetry[]
+  maintenances       MaintenanceSchedule[]
+  inspections        PreTripInspection[]
+  breakdowns         VehicleBreakdown[]
+  dailyAssignments   DailyAssignment[]
+  events             VehicleEvent[]
+  depot              Depot                  @relation(fields: [depotId], references: [id])
+}
+
+model VehicleEvent {
+  id             String   @id @default(uuid())
+  vehicleId      String
+  eventType      String
+  previousStatus String?
+  newStatus      String?
+  userId         String?
+  source         String
+  latitude       Float?
+  longitude      Float?
+  timestamp      DateTime @default(now())
+  metadata       Json?
+  vehicle        Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model FleetNotification {
+  id        String   @id @default(uuid())
+  vehicleId String?
+  type      String
+  message   String
+  severity  String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model AnalyticsSnapshot {
+  id        String   @id @default(uuid())
+  kpiKey    String
+  kpiValue  Float
+  timestamp DateTime @default(now())
+}
+
+model WardStatistics {
+  id              String   @id @default(uuid())
+  wardId          String
+  collectionRate  Float
+  citizenScore    Float
+  complaintsCount Int
+  recyclingRate   Float
+  overallScore    Float
+  timestamp       DateTime @default(now())
+}
+
+model CityStatistics {
+  id                String   @id @default(uuid())
+  totalWasteTons    Float
+  recycledTons      Float
+  compostedTons     Float
+  landfillPercent   Float
+  efficiencyPercent Float
+  timestamp         DateTime @default(now())
+}
+
+model KPIMetric {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Float
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+model DashboardWidget {
+  id        String   @id @default(uuid())
+  title     String
+  type      String
+  config    Json
+  createdAt DateTime @default(now())
+}
+
+model ExecutiveReport {
+  id          String   @id @default(uuid())
+  reportType  String
+  summary     String
+  filePath    String?
+  createdById String
+  createdAt   DateTime @default(now())
+}
+
+model CarbonEmissionRecord {
+  id          String   @id @default(uuid())
+  co2OffsetKg Float
+  category    String
+  recordedAt  DateTime @default(now())
+}
+
+model MunicipalTarget {
+  id           String   @id @default(uuid())
+  title        String
+  targetValue  Float
+  currentValue Float
+  deadline     DateTime
+}
+
+model OpenDataset {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  data        Json
+  updatedAt   DateTime @updatedAt
+}
+
+model GISLayer {
+  id        String  @id @default(uuid())
+  layerName String  @unique
+  features  Json
+  visible   Boolean @default(true)
+}
+
+model HeatmapCache {
+  id        String   @id @default(uuid())
+  type      String
+  points    Json
+  updatedAt DateTime @updatedAt
+}
+
+model PredictionSnapshot {
+  id          String   @id @default(uuid())
+  prediction  String
+  probability Float
+  targetId    String
+  targetType  String
+  createdAt   DateTime @default(now())
+}
+
+model AIModel {
+  id          String         @id @default(uuid())
+  name        String         @unique
+  type        String
+  description String?
+  versions    ModelVersion[]
+}
+
+model ModelVersion {
+  id          String       @id @default(uuid())
+  modelId     String
+  versionTag  String
+  status      String
+  accuracy    Float?
+  f1Score     Float?
+  createdAt   DateTime     @default(now())
+  model       AIModel      @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  predictions Prediction[]
+}
+
+model Prediction {
+  id              String       @id @default(uuid())
+  modelVersionId  String
+  targetId        String
+  targetType      String
+  predictedValue  String
+  actualValue     String?
+  confidenceScore Float
+  factors         Json
+  reasoning       String
+  createdAt       DateTime     @default(now())
+  modelVersion    ModelVersion @relation(fields: [modelVersionId], references: [id], onDelete: Cascade)
+}
+
+model Recommendation {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  actionType  String
+  targetId    String
+  status      String   @default("PENDING")
+  approvedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model OptimizationJob {
+  id          String               @id @default(uuid())
+  triggeredBy String
+  status      String               @default("PENDING")
+  parameters  Json
+  createdAt   DateTime             @default(now())
+  results     OptimizationResult[]
+}
+
+model OptimizationResult {
+  id         String          @id @default(uuid())
+  jobId      String
+  routeId    String
+  stopOrder  Json
+  savingsKm  Float
+  savingsMin Float
+  createdAt  DateTime        @default(now())
+  job        OptimizationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model RiskAssessment {
+  id        String   @id @default(uuid())
+  riskType  String
+  targetId  String
+  severity  String
+  score     Float
+  factors   Json
+  createdAt DateTime @default(now())
+}
+
+model ForecastRecord {
+  id             String   @id @default(uuid())
+  metricKey      String
+  forecastDate   DateTime
+  predictedValue Float
+  confidenceMin  Float
+  confidenceMax  Float
+  createdAt      DateTime @default(now())
+}
+
+model AIConversation {
+  id        String   @id @default(uuid())
+  userId    String
+  prompt    String
+  reply     String
+  createdAt DateTime @default(now())
+}
+
+model DecisionLog {
+  id               String   @id @default(uuid())
+  recommendationId String
+  approvedBy       String
+  executedAt       DateTime @default(now())
+  outcome          String
+}
+
+model TrainingDataset {
+  id          String   @id @default(uuid())
+  modelName   String
+  recordCount Int
+  filePath    String
+  createdAt   DateTime @default(now())
+}
+
+model FeatureStore {
+  id        String   @id @default(uuid())
+  entityId  String   @unique
+  features  Json
+  updatedAt DateTime @updatedAt
+}
+
+model ModelMetrics {
+  id         String   @id @default(uuid())
+  modelName  String
+  accuracy   Float
+  latencyMs  Int
+  recordedAt DateTime @default(now())
+}
+
+model AIExperiment {
+  id           String   @id @default(uuid())
+  name         String
+  parameters   Json
+  outcomeScore Float
+  createdAt    DateTime @default(now())
+}
+
+model WeeklyCollectionSchedule {
+  id            String      @id @default(uuid())
+  dayOfWeek     DayOfWeek
+  wardId        String?
+  zoneId        String?
+  wasteType     BinType
+  shiftId       String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  ward          Ward?       @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  zone          ServiceZone? @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  shift         Shift       @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model spatial_ref_sys {
+  srid      Int     @id
+  auth_name String? @db.VarChar(256)
+  auth_srid Int?
+  srtext    String? @db.VarChar(2048)
+  proj4text String? @db.VarChar(2048)
 }
 
 enum UserRole {
@@ -37,6 +1419,9 @@ enum BinType {
   DRY
   WET
   E_WASTE
+  RECYCLABLES
+  HAZARDOUS
+  BULK
   OTHER
 }
 
@@ -113,255 +1498,6 @@ enum IoTDeviceStatus {
   REVOKED
 }
 
-model User {
-  id                         String         @id @default(uuid())
-  email                      String         @unique
-  passwordHash               String
-  role                       UserRole       @default(CITIZEN)
-  status                     UserStatus     @default(PENDING)
-  emailVerified              Boolean        @default(false)
-  verificationTokenHash      String?        @unique
-  verificationTokenExpires   DateTime?
-  passwordResetTokenHash     String?        @unique
-  passwordResetExpires       DateTime?
-  createdAt                  DateTime       @default(now())
-  updatedAt                  DateTime       @updatedAt
-  
-  refreshTokens              RefreshToken[]
-  auditLogs                  AuditLog[]
-  properties                 Property[]
-
-  // Phase 5 Relations
-  workerProfile              WorkerProfile?
-  supervisedTeams            CollectionTeam[] @relation("TeamSupervisor")
-}
-
-model RefreshToken {
-  id            String       @id @default(uuid())
-  tokenHash     String       @unique
-  userId        String
-  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt     DateTime
-  createdAt     DateTime     @default(now())
-  revoked       Boolean      @default(false)
-  
-  // Self-relation to track token replacement chain for reuse detection
-  replacedById  String?      @unique
-  replacedBy    RefreshToken? @relation("TokenRotation", fields: [replacedById], references: [id])
-  replacedToken RefreshToken? @relation("TokenRotation")
-}
-
-model AuditLog {
-  id        String   @id @default(uuid())
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action    String
-  ipAddress String?
-  userAgent String?
-  details   String?
-  createdAt DateTime @default(now())
-}
-
-model City {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  state     String
-  timezone  String   @default("Asia/Kolkata")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  wards     Ward[]
-}
-
-model Ward {
-  id        String   @id @default(uuid())
-  number    Int
-  name      String
-  cityId    String
-  city      City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  areas     Area[]
-
-  @@unique([cityId, number])
-}
-
-model Area {
-  id               String               @id @default(uuid())
-  name             String
-  wardId           String
-  ward                 Ward                 @relation(fields: [wardId], references: [id], onDelete: Cascade)
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  properties       Property[]
-  collectionPoints CollectionPoint[]
-  schedules        CollectionSchedule[]
-  exceptions       ScheduleException[]
-
-  // Phase 5 Relations
-  serviceZones     ServiceZone[]
-  dailyAssignments DailyAssignment[]
-
-  @@unique([wardId, name])
-}
-
-model Property {
-  id               String            @id @default(uuid())
-  address          String
-  latitude         Float
-  longitude        Float
-  ownerId          String
-  owner            User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  areaId           String
-  area             Area              @relation(fields: [areaId], references: [id])
-  status           PropertyStatus    @default(PENDING)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  collectionPoints CollectionPoint[]
-}
-
-model CollectionPoint {
-  id         String                @id @default(uuid())
-  name       String
-  latitude   Float
-  longitude  Float
-  propertyId String?
-  property   Property?             @relation(fields: [propertyId], references: [id], onDelete: SetNull)
-  areaId     String
-  area       Area                  @relation(fields: [areaId], references: [id])
-  status     CollectionPointStatus @default(ACTIVE)
-  createdAt  DateTime              @default(now())
-  updatedAt  DateTime              @updatedAt
-  bins       Bin[]
-
-  // Phase 5 Relations
-  serviceZoneId          String?
-  serviceZone            ServiceZone?            @relation(fields: [serviceZoneId], references: [id], onDelete: SetNull)
-  dailyAssignmentTargets DailyAssignmentTarget[]
-  collectionEvents       CollectionEvent[]
-}
-
-model Bin {
-  id                String            @id @default(uuid())
-  qrCodeId          String            @unique
-  type              BinType
-  status            BinStatus         @default(EMPTY)
-  condition         BinCondition      @default(GOOD)
-  collectionPointId String
-  collectionPoint   CollectionPoint   @relation(fields: [collectionPointId], references: [id], onDelete: Cascade)
-  
-  // Phase 4 Operational State fields
-  currentFillLevel  Int               @default(0)
-  lastTelemetryAt   DateTime?
-  telemetryStatus   TelemetryStatus   @default(NEVER_CONNECTED)
-  lastEmptiedAt     DateTime?
-  
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  
-  telemetries       BinTelemetry[]
-  device            IoTDevice?
-  alerts            BinAlert[]
-
-  // Phase 5 & 6 Relations
-  dailyAssignmentTargets DailyAssignmentTarget[]
-  collectionEvents       CollectionEvent[]
-
-  @@index([lastTelemetryAt])
-  @@index([currentFillLevel])
-  @@index([telemetryStatus])
-}
-
-model IoTDevice {
-  id               String            @id @default(uuid())
-  deviceIdentifier String            @unique
-  binId            String            @unique
-  bin              Bin               @relation(fields: [binId], references: [id], onDelete: Cascade)
-  status           IoTDeviceStatus   @default(ACTIVE)
-  credentialHash   String
-  lastSeenAt       DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  telemetries      BinTelemetry[]
-}
-
-model BinTelemetry {
-  id             String          @id @default(uuid())
-  binId          String
-  bin            Bin             @relation(fields: [binId], references: [id], onDelete: Cascade)
-  fillLevel      Int
-  batteryLevel   Int?
-  temperature    Float?
-  signalStrength Int?
-  recordedAt     DateTime
-  receivedAt     DateTime        @default(now())
-  source         TelemetrySource
-  deviceId       String?
-  device         IoTDevice?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  eventId        String?
-  createdAt      DateTime        @default(now())
-
-  @@unique([deviceId, eventId])
-  @@index([binId, recordedAt])
-}
-
-model BinAlert {
-  id          String        @id @default(uuid())
-  binId       String
-  bin         Bin           @relation(fields: [binId], references: [id], onDelete: Cascade)
-  type        BinAlertType
-  severity    AlertSeverity
-  status      AlertStatus
-  triggeredAt DateTime      @default(now())
-  resolvedAt  DateTime?
-  latestValue Float?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-}
-
-model CollectionSchedule {
-  id             String              @id @default(uuid())
-  areaId         String
-  area           Area                @relation(fields: [areaId], references: [id], onDelete: Cascade)
-  wasteType      BinType
-  dayOfWeek      DayOfWeek
-  startTime      String
-  endTime        String
-  status         ScheduleStatus      @default(ACTIVE)
-  effectiveFrom  DateTime
-  effectiveUntil DateTime?
-  createdBy      String
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  exceptions     ScheduleException[]
-
-  // Phase 5 Relations
-  dailyAssignments DailyAssignment[]
-}
-
-model ScheduleException {
-  id                   String              @id @default(uuid())
-  areaId               String
-  area                 Area                @relation(fields: [areaId], references: [id], onDelete: Cascade)
-  scheduleId           String?
-  schedule             CollectionSchedule? @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
-  originalDate         DateTime
-  replacementDate      DateTime?
-  replacementStartTime String?
-  replacementEndTime   String?
-  reason               String
-  type                 ExceptionType
-  wasteType            BinType?
-  createdBy            String
-  createdAt            DateTime            @default(now())
-
-  // Phase 5 Relations
-  dailyAssignments DailyAssignment[]
-}
-
-// ==========================================
-// PHASE 5 - WORKFORCE & SHIFTS MODELS
-// ==========================================
-
 enum WorkerEmploymentStatus {
   ACTIVE
   INACTIVE
@@ -369,39 +1505,9 @@ enum WorkerEmploymentStatus {
   ON_LEAVE
 }
 
-model WorkerProfile {
-  id               String                 @id @default(uuid())
-  userId           String                 @unique
-  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  employeeCode     String                 @unique
-  employmentStatus WorkerEmploymentStatus @default(ACTIVE)
-  phone            String?
-  joinedAt         DateTime               @default(now())
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
-
-  memberships      TeamMembership[]
-  shiftAssignments WorkerShiftAssignment[]
-}
-
 enum TeamStatus {
   ACTIVE
   INACTIVE
-}
-
-model CollectionTeam {
-  id           String                 @id @default(uuid())
-  name         String
-  code         String                 @unique
-  status       TeamStatus             @default(ACTIVE)
-  supervisorId String?
-  supervisor   User?                  @relation("TeamSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
-  createdAt    DateTime               @default(now())
-  updatedAt    DateTime               @updatedAt
-  
-  memberships      TeamMembership[]
-  responsibilities TeamServiceAssignment[]
-  assignments      DailyAssignment[]
 }
 
 enum TeamMemberRole {
@@ -410,35 +1516,9 @@ enum TeamMemberRole {
   TEAM_LEAD
 }
 
-model TeamMembership {
-  id             String         @id @default(uuid())
-  teamId         String
-  team           CollectionTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  workerId       String
-  worker         WorkerProfile  @relation(fields: [workerId], references: [id], onDelete: Cascade)
-  role           TeamMemberRole
-  effectiveFrom  DateTime
-  effectiveUntil DateTime?
-  createdAt      DateTime       @default(now())
-}
-
 enum ShiftStatus {
   ACTIVE
   INACTIVE
-}
-
-model Shift {
-  id            String                  @id @default(uuid())
-  name          String
-  startTime     String // HH:MM
-  endTime       String // HH:MM
-  cutoffMinutes Int                     @default(60)
-  status        ShiftStatus             @default(ACTIVE)
-  createdAt     DateTime                @default(now())
-  updatedAt     DateTime                @updatedAt
-  
-  assignments   WorkerShiftAssignment[]
-  dailyAssignments DailyAssignment[]
 }
 
 enum WorkerShiftStatus {
@@ -449,38 +1529,9 @@ enum WorkerShiftStatus {
   CANCELLED
 }
 
-model WorkerShiftAssignment {
-  id        String            @id @default(uuid())
-  workerId  String
-  worker    WorkerProfile     @relation(fields: [workerId], references: [id], onDelete: Cascade)
-  shiftId   String
-  shift     Shift             @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  workDate  DateTime
-  status    WorkerShiftStatus @default(ASSIGNED)
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-
-  @@unique([workerId, shiftId, workDate])
-}
-
 enum ServiceZoneStatus {
   ACTIVE
   INACTIVE
-}
-
-model ServiceZone {
-  id               String                  @id @default(uuid())
-  areaId           String
-  area             Area                    @relation(fields: [areaId], references: [id], onDelete: Cascade)
-  name             String
-  code             String                  @unique
-  status           ServiceZoneStatus       @default(ACTIVE)
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  
-  collectionPoints CollectionPoint[]
-  responsibilities TeamServiceAssignment[]
-  assignments      DailyAssignment[]
 }
 
 enum TeamServiceAssignmentStatus {
@@ -488,65 +1539,29 @@ enum TeamServiceAssignmentStatus {
   INACTIVE
 }
 
-model TeamServiceAssignment {
-  id             String                      @id @default(uuid())
-  teamId         String
-  team           CollectionTeam              @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  serviceZoneId  String
-  serviceZone    ServiceZone                 @relation(fields: [serviceZoneId], references: [id], onDelete: Cascade)
-  wasteType      BinType?
-  effectiveFrom  DateTime
-  effectiveUntil DateTime?
-  status         TeamServiceAssignmentStatus @default(ACTIVE)
-  createdAt      DateTime                    @default(now())
-  updatedAt      DateTime                    @updatedAt
+enum AssignmentStatus {
+  CREATED
+  ASSIGNED
+  ACCEPTED
+  STARTED
+  IN_PROGRESS
+  PAUSED
+  COMPLETED
+  MISSED
+  CANCELLED
 }
 
-enum AssignmentStatus {
-  PLANNED
-  READY
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
+enum AssignmentPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
 }
 
 enum GenerationSource {
   AUTOMATIC
   MANUAL
-}
-
-model DailyAssignment {
-  id                  String             @id @default(uuid())
-  assignmentDate      DateTime
-  teamId              String
-  team                CollectionTeam     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  serviceZoneId       String
-  serviceZone         ServiceZone        @relation(fields: [serviceZoneId], references: [id], onDelete: Cascade)
-  areaId              String
-  area                Area               @relation(fields: [areaId], references: [id], onDelete: Cascade)
-  scheduleId          String?
-  schedule            CollectionSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
-  scheduleExceptionId String?
-  scheduleException   ScheduleException?  @relation(fields: [scheduleExceptionId], references: [id], onDelete: SetNull)
-  wasteType           BinType
-  shiftId             String
-  shift               Shift              @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  status              AssignmentStatus   @default(PLANNED)
-  generationSource    GenerationSource   @default(AUTOMATIC)
-  generatedAt         DateTime           @default(now())
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
-  
-  // Phase 6 Execution tracking
-  startedAt           DateTime?
-  startedById         String?
-  completedAt         DateTime?
-  completedById       String?
-
-  targets             DailyAssignmentTarget[]
-  collectionEvents    CollectionEvent[]
-
-  @@unique([assignmentDate, teamId, serviceZoneId, shiftId, wasteType])
 }
 
 enum TargetStatus {
@@ -563,32 +1578,6 @@ enum AddedReason {
   MANUAL
 }
 
-model DailyAssignmentTarget {
-  id                String          @id @default(uuid())
-  assignmentId      String
-  assignment        DailyAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  collectionPointId String
-  collectionPoint   CollectionPoint @relation(fields: [collectionPointId], references: [id], onDelete: Cascade)
-  binId             String
-  bin               Bin             @relation(fields: [binId], references: [id], onDelete: Cascade)
-  status            TargetStatus    @default(PENDING)
-  addedReason       AddedReason     @default(SCHEDULED)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-
-  // Phase 6 Tracking
-  collectedAt       DateTime?
-  collectedById     String?
-
-  collectionEvents  CollectionEvent[]
-
-  @@unique([assignmentId, collectionPointId, binId])
-}
-
-// ==========================================
-// PHASE 6 - COLLECTION EXECUTION & EVIDENCE
-// ==========================================
-
 enum CollectionEventType {
   COLLECTED
   MISSED
@@ -603,55 +1592,134 @@ enum CollectionVerification {
   FLAGGED
 }
 
-model CollectionEvent {
-  id                 String              @id @default(uuid())
-  assignmentId       String
-  assignment         DailyAssignment     @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  targetId           String
-  target             DailyAssignmentTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
-  binId              String
-  bin                Bin                 @relation(fields: [binId], references: [id], onDelete: Cascade)
-  collectionPointId  String
-  collectionPoint    CollectionPoint     @relation(fields: [collectionPointId], references: [id], onDelete: Cascade)
-  workerId           String
-  teamId             String
-  eventType          CollectionEventType
-  occurredAt         DateTime
-  receivedAt         DateTime            @default(now())
-  latitude           Float?
-  longitude          Float?
-  locationAccuracy   Float?
-  notes              String?
-  reasonCode         String?
-  evidenceId         String?             // Nullable reference to CollectionEvidence
-  clientEventId      String              @unique
-  createdAt          DateTime            @default(now())
-  
-  // GPS location matching policy
-  distanceFromTarget Float?
-  verificationLevel  CollectionVerification @default(UNVERIFIED)
-
-  corrections        SupervisorCorrection[] @relation("OriginalEvent")
+enum WasteLoadStatus {
+  OPEN
+  SEALED
+  IN_TRANSIT
+  ARRIVED
+  WEIGHED
+  ACCEPTED
+  PARTIALLY_REJECTED
+  REJECTED
+  CLOSED
 }
 
-model CollectionEvidence {
-  id          String   @id @default(uuid())
-  storageKey  String
-  mimeType    String
-  size        Int
-  uploadedBy  String   // User ID
-  createdAt   DateTime @default(now())
-  metadata    Json?    // For storing optional coordinates, original filename
+enum FacilityType {
+  MATERIAL_RECOVERY_FACILITY
+  COMPOSTING_FACILITY
+  E_WASTE_FACILITY
+  TRANSFER_STATION
+  LANDFILL
+  OTHER
 }
 
-model SupervisorCorrection {
-  id               String          @id @default(uuid())
-  originalEventId  String
-  originalEvent    CollectionEvent @relation("OriginalEvent", fields: [originalEventId], references: [id], onDelete: Cascade)
-  correctedById    String
-  correctionReason String
-  correctedAt      DateTime        @default(now())
-  correctedStatus  TargetStatus
-  createdAt        DateTime        @default(now())
+enum FacilityStatus {
+  ACTIVE
+  INACTIVE
+  TEMPORARILY_CLOSED
 }
 
+enum TransferStatus {
+  PLANNED
+  DISPATCHED
+  ARRIVED
+  CANCELLED
+}
+
+enum WeighingMethod {
+  WEIGHBRIDGE
+  DIGITAL_SCALE
+  MANUAL_ENTRY
+  SIMULATED
+}
+
+enum ReceiptStatus {
+  ACCEPTED
+  PARTIALLY_ACCEPTED
+  REJECTED
+}
+
+enum ProcessType {
+  SORTED
+  RECYCLED
+  COMPOSTED
+  RECOVERED
+  LANDFILLED
+  TRANSFERRED
+  OTHER
+}
+
+enum MassBalanceStatus {
+  BALANCED
+  WITHIN_TOLERANCE
+  MISMATCH
+}
+
+enum CustodyEventType {
+  LOAD_CREATED
+  LOAD_SEALED
+  DISPATCHED
+  ARRIVED_AT_FACILITY
+  WEIGHED
+  ACCEPTED
+  PARTIALLY_REJECTED
+  REJECTED
+  PROCESSING_RECORDED
+  CLOSED
+  CORRECTED
+}
+
+enum ServiceRequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+}
+
+enum ServiceRequestStatus {
+  SUBMITTED
+  TRIAGED
+  ASSIGNED
+  IN_PROGRESS
+  WAITING_FOR_INFORMATION
+  RESOLVED
+  REOPENED
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+
+enum ServiceRequestSource {
+  CITIZEN_PORTAL
+  GOVERNMENT_STAFF
+  WORKER
+  SYSTEM_GENERATED
+}
+
+enum CommentVisibility {
+  PUBLIC
+  INTERNAL
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  ASSIGNED
+  PRE_TRIP_INSPECTION
+  READY
+  IN_SERVICE
+  RETURNING
+  POST_TRIP_INSPECTION
+  BREAKDOWN
+  UNDER_MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+enum VehicleType {
+  MINI_TRUCK
+  COMPACTOR
+  DUMP_TRUCK
+  RECYCLING_TRUCK
+  E_WASTE_TRUCK
+  OTHER
+}

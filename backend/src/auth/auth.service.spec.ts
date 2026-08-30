@@ -71,11 +71,16 @@ describe('AuthService', () => {
 
   describe('register', () => {
     it('should create a citizen using usersService', async () => {
-      const dto = { email: 'citizen@test.com', password: 'Password123!' };
-      usersService.createCitizen.mockResolvedValue({ id: '1', email: dto.email, role: UserRole.CITIZEN });
+      const dto = { email: 'citizen@test.com', password: 'Password123!', name: 'Jane Citizen', phone: '+919999999999', role: UserRole.CITIZEN };
+      usersService.createCitizen.mockResolvedValue({ id: '1', email: dto.email, role: UserRole.CITIZEN, name: dto.name, phone: dto.phone });
 
-      const result = await service.register(dto);
-      expect(usersService.createCitizen).toHaveBeenCalledWith(dto.email, dto.password);
+      const result = (await service.register(dto)) as any;
+      expect(usersService.createCitizen).toHaveBeenCalledWith({
+        name: dto.name,
+        email: dto.email,
+        phone: dto.phone,
+        passwordPlain: dto.password,
+      });
       expect(result.role).toBe(UserRole.CITIZEN);
     });
   });

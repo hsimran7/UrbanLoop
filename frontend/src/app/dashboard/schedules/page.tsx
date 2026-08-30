@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiRequest } from '../../../utils/api';
+import { getSocket } from '../../../utils/socket';
 
 interface Occurrence {
   propertyId: string;
@@ -42,8 +43,27 @@ export default function CitizenSchedulesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     fetchSchedules();
+
+    const socket = getSocket('realtime');
+    
+    const queueFetch = () => {
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = setTimeout(() => fetchSchedules(), 500);
+    };
+
+    socket.on('scheduleUpdated', queueFetch);
+    socket.on('notificationCreated', queueFetch);
+
+    return () => {
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+      socket.off('scheduleUpdated', queueFetch);
+      socket.off('notificationCreated', queueFetch);
+      socket.disconnect();
+    };
   }, []);
 
   async function fetchSchedules() {

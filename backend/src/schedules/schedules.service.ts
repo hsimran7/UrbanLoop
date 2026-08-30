@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
+import { realtimeEventEmitter } from '../realtime/realtime.event-emitter';
 import {
   BinType,
   DayOfWeek,
@@ -41,13 +42,53 @@ export class SchedulesService {
   ) {}
 
   // Domain Event Hook
-  private emitEvent(event: string, payload: any) {
+  private async emitEvent(event: string, payload: any) {
     console.log(
       `\n==================================================\n` +
       `[EVENT ARCHITECTURE] Emitted Domain Event: ${event}\n` +
       `Payload: ${JSON.stringify(payload, null, 2)}\n` +
       `==================================================\n`
     );
+    if (payload.areaId) {
+      realtimeEventEmitter.emit('scheduleUpdated', { areaId: payload.areaId });
+      await this.notifyCitizens(payload.areaId, event);
+    }
+  }
+
+  private async notifyCitizens(areaId: string, eventType: string) {
+    const properties = await this.prisma.property.findMany({
+      where: { areaId },
+      select: { ownerId: true, area: { select: { name: true } } }
+    });
+    
+    if (properties.length === 0) return;
+    
+    const ownerIds = Array.from(new Set(properties.map(p => p.ownerId)));
+    const areaName = properties[0].area.name;
+
+    const actionText = eventType === 'SCHEDULE_CREATED' ? 'New Collection Schedule created'
+                     : eventType === 'SCHEDULE_UPDATED' ? 'Collection Schedule updated'
+                     : eventType === 'SCHEDULE_STATUS_CHANGED' ? 'Collection Schedule status changed'
+                     : 'Collection Schedule exception added';
+
+    for (const ownerId of ownerIds) {
+      await this.prisma.notification.create({
+        data: {
+          userId: ownerId,
+          title: 'Collection Schedule Updated',
+          body: `Area: ${areaName}\nNotice: ${actionText}. Check dashboard for the latest timings.`,
+          type: 'SYSTEM'
+        }
+      });
+      realtimeEventEmitter.emit('notification', {
+        userId: ownerId,
+        title: 'Collection Schedule Updated',
+        body: `Area: ${areaName}\nNotice: ${actionText}. Check dashboard for the latest timings.`,
+        type: 'SYSTEM'
+      });
+    }
+
+    realtimeEventEmitter.emit('notificationCreated', { type: 'SCHEDULE_UPDATE', areaId });
   }
 
   // Resolves the administrative scope and city's timezone
@@ -152,7 +193,7 @@ export class SchedulesService {
       day: schedule.dayOfWeek,
     });
 
-    this.emitEvent('SCHEDULE_CREATED', { scheduleId: schedule.id, areaId: schedule.areaId });
+    await this.emitEvent('SCHEDULE_CREATED', { scheduleId: schedule.id, areaId: schedule.areaId });
 
     return schedule;
   }
@@ -269,7 +310,7 @@ export class SchedulesService {
       updates: dto,
     });
 
-    this.emitEvent('SCHEDULE_UPDATED', { scheduleId: id });
+    await this.emitEvent('SCHEDULE_UPDATED', { scheduleId: id, areaId: updated.areaId });
 
     return updated;
   }
@@ -301,7 +342,7 @@ export class SchedulesService {
       status,
     });
 
-    this.emitEvent('SCHEDULE_STATUS_CHANGED', { scheduleId: id, status });
+    await this.emitEvent('SCHEDULE_STATUS_CHANGED', { scheduleId: id, status, areaId: updated.areaId });
 
     return updated;
   }
@@ -385,7 +426,7 @@ export class SchedulesService {
         ? 'SCHEDULE_RESCHEDULED'
         : 'SPECIAL_COLLECTION_CREATED';
 
-    this.emitEvent(eventType, { exceptionId: exception.id, areaId: exception.areaId });
+    await this.emitEvent(eventType, { exceptionId: exception.id, areaId: exception.areaId });
 
     return exception;
   }
@@ -417,13 +458,45 @@ export class SchedulesService {
       const timezone = property.area.ward.city.timezone || 'Asia/Kolkata';
 
       // Query active recurring schedules for area
-      const schedules = await this.prisma.collectionSchedule.findMany({
+      const areaSchedules = await this.prisma.collectionSchedule.findMany({
         where: {
           areaId,
+          propertyId: null,
+          binId: null,
           status: ScheduleStatus.ACTIVE,
           effectiveFrom: { lte: endDate },
         },
       });
+
+      const propertyBins = this.prisma.bin
+        ? await this.prisma.bin.findMany({
+            where: { collectionPoint: { propertyId: property.id } }
+          })
+        : [];
+      const binIds = propertyBins.map(b => b.id);
+
+      const overrideSchedules = await this.prisma.collectionSchedule.findMany({
+        where: {
+          OR: [
+            { propertyId: property.id },
+            { binId: { in: binIds } }
+          ],
+          status: ScheduleStatus.ACTIVE,
+          effectiveFrom: { lte: endDate },
+        }
+      });
+
+      const combinedSchedulesMap = new Map<string, typeof areaSchedules[0]>();
+      
+      areaSchedules.forEach(s => {
+        combinedSchedulesMap.set(`${s.dayOfWeek}-${s.wasteType}`, s);
+      });
+
+      overrideSchedules.forEach(s => {
+        combinedSchedulesMap.set(`${s.dayOfWeek}-${s.wasteType}`, s);
+      });
+
+      const schedules = Array.from(combinedSchedulesMap.values());
 
       // Query exceptions active for area
       const exceptions = await this.prisma.scheduleException.findMany({

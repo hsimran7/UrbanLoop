@@ -17,7 +17,7 @@ import {
   generateToken,
   hashToken,
 } from '../common/utils/crypto.util';
-import { UserStatus } from '@prisma/client';
+import { UserStatus, UserRole } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -31,14 +31,37 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto) {
-    // Public registration is restricted to creating CITIZENs
-    return this.usersService.createCitizen(registerDto.email, registerDto.password);
+    if (registerDto.role === UserRole.WORKER) {
+      if (!registerDto.employeeCode) {
+        throw new BadRequestException('Employee ID is required for worker registration.');
+      }
+      return this.usersService.createPendingWorker({
+        name: registerDto.name,
+        employeeCode: registerDto.employeeCode,
+        email: registerDto.email,
+        phone: registerDto.phone,
+        passwordPlain: registerDto.password,
+      });
+    } else if (registerDto.role === UserRole.CITIZEN) {
+      return this.usersService.createCitizen({
+        name: registerDto.name,
+        email: registerDto.email,
+        phone: registerDto.phone,
+        passwordPlain: registerDto.password,
+      });
+    } else {
+      throw new BadRequestException('Public registration is restricted to CITIZEN and WORKER roles.');
+    }
   }
 
   async login(loginDto: LoginDto, ipAddress?: string, userAgent?: string) {
     const user = await this.usersService.findByEmail(loginDto.email);
     if (!user) {
       throw new UnauthorizedException('Invalid email or password.');
+    }
+
+    if (user.status === UserStatus.PENDING) {
+      throw new UnauthorizedException('Your account is pending approval by an administrator.');
     }
 
     if (user.status === UserStatus.SUSPENDED) {

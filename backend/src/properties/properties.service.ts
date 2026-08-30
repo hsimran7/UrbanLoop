@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { PropertyStatus, CollectionPointStatus, BinType, UserRole } from '@prisma/client';
 import * as crypto from 'crypto';
+import { realtimeEventEmitter } from '../realtime/realtime.event-emitter';
 
 @Injectable()
 export class PropertiesService {
@@ -15,11 +16,89 @@ export class PropertiesService {
   ) {}
 
   async create(dto: CreatePropertyDto, userId: string, ip?: string, ua?: string) {
-    const area = await this.prisma.area.findUnique({
-      where: { id: dto.areaId },
-    });
-    if (!area) {
-      throw new NotFoundException('Selected area does not exist.');
+    let finalAreaId = dto.areaId;
+
+    if (!finalAreaId) {
+      if (!dto.cityName || !dto.stateName || !dto.areaName) {
+        throw new BadRequestException('Either areaId or cityName, stateName, and areaName must be provided.');
+      }
+
+      // Find or create State
+      const stateNameClean = dto.stateName.trim();
+      const cityNameClean = dto.cityName.trim();
+      let state = await this.prisma.state.findUnique({ where: { name: stateNameClean } });
+      if (!state) {
+        state = await this.prisma.state.create({ data: { name: stateNameClean } });
+      }
+
+      // Find or create District
+      const districtNameClean = `${cityNameClean} District`; // Fallback since we don't have districtName in DTO
+      let district = await this.prisma.district.findFirst({ where: { name: districtNameClean, stateId: state.id } });
+      if (!district) {
+        district = await this.prisma.district.create({ data: { name: districtNameClean, stateId: state.id } });
+      }
+
+      // Find or create City
+      let city = await this.prisma.city.findUnique({
+        where: { name: cityNameClean },
+      });
+      if (!city) {
+        city = await this.prisma.city.create({
+          data: {
+            name: cityNameClean,
+            districtId: district.id,
+            timezone: 'Asia/Kolkata',
+          },
+        });
+      }
+
+      // Find or create Ward
+      const wardNumber = dto.wardNumber || 1;
+      let ward = await this.prisma.ward.findUnique({
+        where: {
+          cityId_number: {
+            cityId: city.id,
+            number: wardNumber,
+          },
+        },
+      });
+      if (!ward) {
+        ward = await this.prisma.ward.create({
+          data: {
+            number: wardNumber,
+            name: dto.wardName ? dto.wardName.trim() : `Ward ${wardNumber}`,
+            cityId: city.id,
+          },
+        });
+      }
+
+      // Find or create Area
+      const areaNameClean = dto.areaName.trim();
+      let area = await this.prisma.area.findUnique({
+        where: {
+          wardId_name: {
+            wardId: ward.id,
+            name: areaNameClean,
+          },
+        },
+      });
+      if (!area) {
+        area = await this.prisma.area.create({
+          data: {
+            name: areaNameClean,
+            wardId: ward.id,
+          },
+        });
+      }
+
+      finalAreaId = area.id;
+    } else {
+      const area = await this.prisma.area.findUnique({
+        where: { id: finalAreaId },
+      });
+      if (!area) {
+        throw new NotFoundException('Selected area does not exist.');
+      }
     }
 
     const property = await this.prisma.property.create({
@@ -28,7 +107,7 @@ export class PropertiesService {
         latitude: dto.latitude,
         longitude: dto.longitude,
         ownerId: userId,
-        areaId: dto.areaId,
+        areaId: finalAreaId,
         status: PropertyStatus.PENDING,
       },
     });
@@ -75,6 +154,11 @@ export class PropertiesService {
                 city: true,
               },
             },
+          },
+        },
+        collectionPoints: {
+          include: {
+            bins: true,
           },
         },
       },
@@ -197,6 +281,28 @@ export class PropertiesService {
         await this.assignmentsService.handleNewPropertyVerification(id);
       }
     }
+
+    realtimeEventEmitter.emit('property.approved', {
+      propertyId: id,
+      status,
+      timestamp: new Date().toISOString(),
+    });
+
+    await this.prisma.notification.create({
+      data: {
+        userId: property.ownerId,
+        title: `Property Registration ${status === PropertyStatus.VERIFIED ? 'Verified' : 'Rejected'}`,
+        body: `Your property registration at ${property.address} has been ${status.toLowerCase()}.`,
+        type: status === PropertyStatus.VERIFIED ? 'INFO' : 'ALERT',
+      }
+    });
+
+    realtimeEventEmitter.emit('notification', {
+      userId: property.ownerId,
+      title: `Property Registration ${status === PropertyStatus.VERIFIED ? 'Verified' : 'Rejected'}`,
+      body: `Your property registration at ${property.address} has been ${status.toLowerCase()}.`,
+      type: status === PropertyStatus.VERIFIED ? 'INFO' : 'ALERT',
+    });
 
     return this.findOne(id);
   }

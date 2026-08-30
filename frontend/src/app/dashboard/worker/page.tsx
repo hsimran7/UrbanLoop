@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiRequest } from '../../../utils/api';
+import { getSocket } from '../../../utils/socket';
 
 interface AssignmentTarget {
   id: string;
@@ -19,7 +20,7 @@ interface TodayAssignment {
   id: string;
   assignmentDate: string;
   wasteType: 'DRY' | 'WET' | 'E_WASTE' | 'OTHER';
-  status: 'PLANNED' | 'READY' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: 'CREATED' | 'ASSIGNED' | 'PLANNED' | 'READY' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   teamName: string;
   teamCode: string;
   zoneName: string;
@@ -43,6 +44,7 @@ const WASTE_LABELS: Record<string, { label: string; icon: string; color: string 
 
 export default function WorkerPortalPage() {
   const [assignments, setAssignments] = useState<TodayAssignment[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -76,9 +78,78 @@ export default function WorkerPortalPage() {
 
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     fetchTodayAssignments();
+    fetchNotifications();
+
+    const socket = getSocket('realtime');
+    
+    // Debounced fetch to avoid multiple rapid refreshes
+    const queueFetch = () => {
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = setTimeout(() => fetchTodayAssignments(), 500);
+    };
+    const queueNotifFetch = () => fetchNotifications();
+
+    socket.on('assignmentCreated', queueFetch);
+    socket.on('assignmentUpdated', queueFetch);
+    socket.on('assignmentAccepted', queueFetch);
+    socket.on('assignmentRejected', queueFetch);
+    socket.on('notificationCreated', () => { queueFetch(); queueNotifFetch(); });
+    socket.on('notification', queueNotifFetch);
+    socket.on('targetCollected', queueFetch);
+    socket.on('targetMissed', queueFetch);
+    socket.on('targetSkipped', queueFetch);
+
+    // ── Real-Time Task Assignment Feature ──
+    socket.on('TASK_ASSIGNED', (newTask: TodayAssignment) => {
+      console.log('[WORKER SOCKET] TASK_ASSIGNED RECEIVED', newTask);
+      setAssignments(prev => {
+        if (prev.some(a => a.id === newTask.id)) return prev;
+        return [newTask, ...prev];
+      });
+      // Also fetch notifications just in case there's an associated notification
+      queueNotifFetch();
+    });
+
+    socket.on('TASK_STATUS_UPDATED', (data: any) => {
+      console.log('[WORKER SOCKET] TASK_STATUS_UPDATED RECEIVED', data);
+      if (data.assignmentId && data.status) {
+        setAssignments(prev => prev.map(a => a.id === data.assignmentId ? { ...a, status: data.status } : a));
+      }
+      if (data.status === 'COMPLETED' || data.status === 'CANCELLED') {
+         fetchTodayAssignments();
+         fetchWorkHistory();
+      } else {
+         fetchTodayAssignments();
+      }
+    });
+
+    return () => {
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+      socket.off('assignmentCreated', queueFetch);
+      socket.off('assignmentUpdated', queueFetch);
+      socket.off('assignmentAccepted', queueFetch);
+      socket.off('assignmentRejected', queueFetch);
+      socket.off('notificationCreated');
+      socket.off('notification', queueNotifFetch);
+      socket.off('targetCollected', queueFetch);
+      socket.off('targetMissed', queueFetch);
+      socket.off('targetSkipped', queueFetch);
+      socket.off('TASK_ASSIGNED');
+      socket.off('TASK_STATUS_UPDATED');
+      socket.disconnect();
+    };
   }, []);
+
+  async function fetchNotifications() {
+    try {
+      const res = await apiRequest('/assignments/my-notifications');
+      if (res.ok) setNotifications(await res.json());
+    } catch { /* silent */ }
+  }
 
   async function fetchTodayAssignments() {
     setIsLoading(true);
@@ -98,6 +169,46 @@ export default function WorkerPortalPage() {
   }
 
   // ─── Actions ───────────────────────────────────────────────────────────────
+
+  async function handleAcceptWork(assignmentId: string) {
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const res = await apiRequest(`/assignments/${assignmentId}/accept`, { method: 'POST' });
+      if (res.ok) {
+        setSuccessMsg('Assignment accepted!');
+        fetchTodayAssignments();
+      } else {
+        const err = await res.json();
+        setErrorMsg(err.message || 'Failed to accept assignment.');
+      }
+    } catch {
+      setErrorMsg('Network error.');
+    }
+  }
+
+  async function handleRejectWork(assignmentId: string) {
+    const reason = prompt('Please provide a reason for rejecting this assignment:');
+    if (!reason) return;
+
+    setErrorMsg('');
+    try {
+      const res = await apiRequest(`/assignments/${assignmentId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      if (res.ok) {
+        setSuccessMsg('Assignment rejected.');
+        fetchTodayAssignments();
+      } else {
+        const err = await res.json();
+        setErrorMsg(err.message || 'Failed to reject assignment.');
+      }
+    } catch {
+      setErrorMsg('Network error.');
+    }
+  }
 
   async function handleStartWork(assignmentId: string) {
     setErrorMsg('');
@@ -342,6 +453,227 @@ export default function WorkerPortalPage() {
     s + (a.targets?.filter(t => t.status !== 'PENDING').length ?? 0), 0);
   const progressPct = totalTargets > 0 ? Math.round((completedTargets / totalTargets) * 100) : 0;
 
+  const categorizeAssignments = () => {
+    const todayItems: TodayAssignment[] = [];
+    const upcoming: TodayAssignment[] = [];
+    const completed: TodayAssignment[] = [];
+
+    assignments.forEach(a => {
+      if (a.status === 'COMPLETED' || a.status === 'CANCELLED') {
+        completed.push(a);
+      } else {
+        // Any active task assigned to this worker MUST be displayed on the dashboard!
+        todayItems.push(a);
+      }
+    });
+    return { todayItems, upcoming, completed };
+  };
+
+  const renderAssignmentCard = (a: TodayAssignment, idx: number) => {
+    const waste = WASTE_LABELS[a.wasteType] || WASTE_LABELS.OTHER;
+    const expanded = expandedId === a.id;
+    const aTargets = a.targets ?? [];
+    const completedCount = aTargets.filter(t => t.status !== 'PENDING').length;
+    const pendingCount = aTargets.filter(t => t.status === 'PENDING').length;
+
+    return (
+      <div key={a.id} className={`rounded-2xl border bg-slate-900/40 overflow-hidden transition ${
+        a.status === 'COMPLETED' ? 'border-emerald-500/20 opacity-75' : 'border-slate-800'
+      }`}>
+        {/* Card Header */}
+        <div className="p-5 flex items-start gap-4 flex-wrap sm:flex-nowrap">
+          {/* Index + Icon */}
+          <div className="shrink-0 flex flex-col items-center gap-1">
+            <div className="h-10 w-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl">
+              {waste.icon}
+            </div>
+            <div className="text-xs text-slate-600 font-mono">#{idx + 1}</div>
+          </div>
+
+          {/* Main info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`px-2 py-0.5 rounded-md text-xs font-bold border ${waste.color}`}>
+                {waste.label}
+              </span>
+              <span className={`px-2 py-0.5 rounded-md text-xs font-medium border ${
+                a.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' :
+                a.status === 'IN_PROGRESS' ? 'bg-blue-500/10 text-blue-300 border-blue-500/20' :
+                'bg-yellow-500/10 text-yellow-300 border-yellow-500/20'
+              }`}>
+                {a.status.replace('_', ' ')}
+              </span>
+            </div>
+
+            <div className="text-sm font-semibold text-slate-200 mt-2">
+              {a.zoneName}
+              <span className="ml-1 text-slate-500 font-normal text-xs">· {a.areaName}</span>
+            </div>
+
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>🚛 Team: {a.teamName} ({a.teamCode})</span>
+              <span>🕐 Shift: {a.shiftName} ({a.shiftTimes})</span>
+              <span>📍 {aTargets.length} collection points</span>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="shrink-0 flex flex-col gap-2 min-w-[140px]">
+            {/* New assignment — show accept/reject */}
+            {(a.status === 'CREATED' || a.status === 'ASSIGNED') && (
+              <>
+                <button
+                  onClick={() => handleAcceptWork(a.id)}
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold transition shadow-lg shadow-blue-500/20"
+                >
+                  ✓ Accept
+                </button>
+                <button
+                  onClick={() => handleRejectWork(a.id)}
+                  className="w-full px-3 py-1.5 bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 border border-slate-700 hover:border-red-500/40 rounded-xl text-xs font-medium transition"
+                >
+                  Reject
+                </button>
+              </>
+            )}
+
+            {/* Accepted — ready to start */}
+            {a.status === 'ACCEPTED' && (
+              <button
+                onClick={() => handleStartWork(a.id)}
+                className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold transition shadow-lg shadow-emerald-500/20"
+              >
+                🚀 Start Shift
+              </button>
+            )}
+
+            {/* Legacy statuses that also allow start */}
+            {(a.status === 'PLANNED' || a.status === 'READY') && (
+              <button
+                onClick={() => handleStartWork(a.id)}
+                className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold transition shadow-lg shadow-emerald-500/20"
+              >
+                Start Shift
+              </button>
+            )}
+
+            {a.status === 'IN_PROGRESS' ? (
+              <>
+                {pendingCount === 0 && aTargets.length > 0 ? (
+                  <button
+                    onClick={() => handleCompleteWork(a.id)}
+                    className="w-full px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white rounded-xl text-sm font-bold shadow-lg shadow-cyan-500/20 transition"
+                  >
+                    Complete Shift
+                  </button>
+                ) : (
+                  <div className="text-right text-xs text-slate-400">
+                    <span className="font-semibold text-emerald-400">{completedCount}</span> / {aTargets.length} done
+                  </div>
+                )}
+                <button
+                  onClick={() => setExpandedId(expanded ? null : a.id)}
+                  className="w-full px-4 py-1.5 border border-slate-700 hover:bg-slate-800 text-slate-300 rounded-lg text-xs font-medium transition mt-1"
+                >
+                  {expanded ? 'Hide Points ↑' : 'Show Points ↓'}
+                </button>
+              </>
+            ) : null}
+
+            {a.status === 'COMPLETED' ? (
+              <div className="text-right px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+                Shift Completed
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Collection Points List (Expanded) */}
+        {expanded && a.status === 'IN_PROGRESS' && (
+          <div className="border-t border-slate-800 bg-slate-950 p-4">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 px-2">Collection Route</h3>
+            <div className="space-y-3">
+              {aTargets.map((t, tIdx) => {
+                const isPending = t.status === 'PENDING';
+                
+                return (
+                  <div key={t.id} className={`p-4 rounded-xl border ${
+                    isPending ? 'border-slate-800 bg-slate-900' :
+                    t.status === 'COLLECTED' ? 'border-emerald-500/30 bg-emerald-950/20' :
+                    t.status === 'MISSED' ? 'border-red-500/30 bg-red-950/20' :
+                    'border-cyan-500/30 bg-cyan-950/20'
+                  }`}>
+                    <div className="flex justify-between items-start gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-bold text-slate-500">#{tIdx + 1}</span>
+                          <span className="text-sm font-semibold text-slate-200">{t.collectionPointName}</span>
+                          {t.priority !== 'NORMAL' && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                              t.priority === 'CRITICAL' ? 'bg-red-500/20 text-red-400' : 'bg-orange-500/20 text-orange-400'
+                            }`}>{t.priority}</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          Bin: <span className="font-mono text-slate-300">{t.binId}</span> · Fill: {t.binFillLevel}%
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex gap-2">
+                        {isPending ? (
+                          <>
+                            <button
+                              onClick={() => {
+                                setActiveTarget(t);
+                                setActiveAssignmentId(a.id);
+                                setQrCodeInput(t.binId); 
+                                setShowQRModal(true);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600/20 border border-emerald-500/30 hover:bg-emerald-600/40 text-emerald-300 rounded-lg text-xs font-medium transition"
+                            >
+                              Scan & Collect
+                            </button>
+                            <button
+                              onClick={() => {
+                                setActiveTarget(t);
+                                setActiveAssignmentId(a.id);
+                                setShowMissModal(true);
+                              }}
+                              className="px-3 py-1.5 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-300 rounded-lg text-xs font-medium transition"
+                            >
+                              Miss
+                            </button>
+                            <button
+                              onClick={() => {
+                                setActiveTarget(t);
+                                setActiveAssignmentId(a.id);
+                                setShowSkipModal(true);
+                              }}
+                              className="px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 text-cyan-300 rounded-lg text-xs font-medium transition"
+                            >
+                              Skip
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-xs font-semibold px-2.5 py-1 bg-slate-800 rounded-lg border border-slate-700">
+                            {t.status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const { todayItems, upcoming: upcomingList, completed: completedList } = categorizeAssignments();
+  const unreadNotifications = notifications.filter(n => !n.isRead);
+
   return (
     <div className="space-y-8 max-w-3xl pb-24">
       {/* Welcome Header */}
@@ -372,6 +704,27 @@ export default function WorkerPortalPage() {
         </div>
       ) : (
         <>
+          {/* Live Notifications Panel */}
+          {unreadNotifications.length > 0 && (
+            <div className="space-y-2">
+              <h2 className="text-sm font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                <span className="animate-pulse h-2 w-2 rounded-full bg-blue-400 inline-block"></span>
+                Notifications ({unreadNotifications.length} unread)
+              </h2>
+              <div className="space-y-2">
+                {unreadNotifications.slice(0, 5).map((n: any) => (
+                  <div key={n.id} className="flex items-start gap-3 p-3 rounded-xl border border-blue-500/20 bg-blue-950/10">
+                    <div className="mt-1 h-2 w-2 rounded-full bg-blue-400 shrink-0"></div>
+                    <div>
+                      <div className="text-xs font-semibold text-blue-300">{n.title}</div>
+                      <div className="text-xs text-slate-400 mt-0.5">{n.body}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Progress summary */}
           <div className="grid grid-cols-3 gap-4">
             {[
@@ -402,197 +755,40 @@ export default function WorkerPortalPage() {
             </div>
           )}
 
-          {/* Assignment Cards */}
-          <div className="space-y-6">
-            {assignments.map((a, idx) => {
-              const waste = WASTE_LABELS[a.wasteType] || WASTE_LABELS.OTHER;
-              const expanded = expandedId === a.id;
-              const aTargets = a.targets ?? [];
-              const completedCount = aTargets.filter(t => t.status !== 'PENDING').length;
-              const pendingCount = aTargets.filter(t => t.status === 'PENDING').length;
-
-              return (
-                <div key={a.id} className={`rounded-2xl border bg-slate-900/40 overflow-hidden transition ${
-                  a.status === 'COMPLETED' ? 'border-emerald-500/20 opacity-75' : 'border-slate-800'
-                }`}>
-                  {/* Card Header */}
-                  <div className="p-5 flex items-start gap-4 flex-wrap sm:flex-nowrap">
-                    {/* Index + Icon */}
-                    <div className="shrink-0 flex flex-col items-center gap-1">
-                      <div className="h-10 w-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl">
-                        {waste.icon}
-                      </div>
-                      <div className="text-xs text-slate-600 font-mono">#{idx + 1}</div>
-                    </div>
-
-                    {/* Main info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`px-2 py-0.5 rounded-md text-xs font-bold border ${waste.color}`}>
-                          {waste.label}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-md text-xs font-medium border ${
-                          a.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' :
-                          a.status === 'IN_PROGRESS' ? 'bg-blue-500/10 text-blue-300 border-blue-500/20' :
-                          'bg-yellow-500/10 text-yellow-300 border-yellow-500/20'
-                        }`}>
-                          {a.status.replace('_', ' ')}
-                        </span>
-                      </div>
-
-                      <div className="text-sm font-semibold text-slate-200 mt-2">
-                        {a.zoneName}
-                        <span className="ml-1 text-slate-500 font-normal text-xs">· {a.areaName}</span>
-                      </div>
-
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-slate-500">
-                        <span>🚛 Team: {a.teamName} ({a.teamCode})</span>
-                        <span>🕐 Shift: {a.shiftName} ({a.shiftTimes})</span>
-                        <span>📍 {aTargets.length} target bins</span>
-                      </div>
-                    </div>
-
-                    {/* Start / Complete Actions */}
-                    <div className="shrink-0 flex flex-col gap-2 w-full sm:w-auto mt-4 sm:mt-0">
-                      {(a.status === 'PLANNED' || a.status === 'READY') && (
-                        <button
-                          onClick={() => handleStartWork(a.id)}
-                          className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow transition"
-                        >
-                          Start Shift
-                        </button>
-                      )}
-
-                      {a.status === 'IN_PROGRESS' && (
-                        <>
-                          <button
-                            onClick={() => setExpandedId(expanded ? null : a.id)}
-                            className="w-full sm:w-auto px-4 py-2 border border-slate-700 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-400 rounded-xl text-xs font-semibold transition"
-                          >
-                            {expanded ? 'Hide Bins' : 'View Target Bins'}
-                          </button>
-                          {pendingCount === 0 && (
-                            <button
-                              onClick={() => handleCompleteWork(a.id)}
-                              className="w-full sm:w-auto px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-semibold shadow transition"
-                            >
-                              Complete Shift
-                            </button>
-                          )}
-                        </>
-                      )}
-
-                      {a.status === 'COMPLETED' && (
-                        <span className="text-emerald-400 text-xs font-semibold flex items-center gap-1 sm:justify-end">
-                          ✓ Completed ({a.collected} Collected, {a.missed} Missed)
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Expanded: target route */}
-                  {expanded && a.status === 'IN_PROGRESS' && aTargets.length > 0 && (
-                    <div className="border-t border-slate-800 px-5 py-4 space-y-3 bg-slate-950/20">
-                      <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Bins Route Sequence</p>
-                      
-                      {aTargets.map((t, ti) => {
-                        const statusColors = {
-                          PENDING: 'border-slate-800 bg-slate-900/20 text-slate-400',
-                          COLLECTED: 'border-emerald-500/20 bg-emerald-950/10 text-emerald-400',
-                          MISSED: 'border-red-500/20 bg-red-950/10 text-red-400',
-                          SKIPPED: 'border-cyan-500/20 bg-cyan-950/10 text-cyan-400',
-                          CANCELLED: 'border-slate-700 bg-slate-900/50 text-slate-500 opacity-60LineThrough',
-                        };
-
-                        const priorityColors = {
-                          CRITICAL: 'bg-red-500/10 text-red-400 border-red-500/20',
-                          HIGH: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-                          NORMAL: 'bg-slate-800 text-slate-400 border-slate-700',
-                        };
-
-                        return (
-                          <div
-                            key={t.id}
-                            className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl border transition ${statusColors[t.status]}`}
-                          >
-                            <div className="flex items-start gap-3">
-                              {/* Sequence index */}
-                              <div className="h-7 w-7 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-300 mt-0.5">
-                                {ti + 1}
-                              </div>
-
-                              <div>
-                                <div className="text-sm font-semibold text-slate-200">
-                                  {t.collectionPointName}
-                                </div>
-                                <div className="text-xs text-slate-500 mt-0.5 font-mono">
-                                  Bin ID: {t.binId} · Type: {t.binType} ({t.binFillLevel}%)
-                                </div>
-                                
-                                <div className="flex gap-2 mt-2">
-                                  {t.addedReason === 'NEW_COLLECTION_POINT' && (
-                                    <span className="px-1.5 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded text-[10px] font-bold uppercase tracking-wider">
-                                      ✨ NewCP
-                                    </span>
-                                  )}
-                                  <span className={`px-1.5 py-0.5 border rounded text-[10px] font-bold uppercase tracking-wider ${priorityColors[t.priority]}`}>
-                                    {t.priority}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Target status / action controls */}
-                            <div className="flex items-center gap-2 self-end md:self-auto">
-                              {t.status === 'PENDING' ? (
-                                <>
-                                  <button
-                                    onClick={() => {
-                                      setActiveTarget(t);
-                                      setActiveAssignmentId(a.id);
-                                      // Pre-fill target bin QR for easy simulator scanning
-                                      setQrCodeInput(t.binId); 
-                                      setShowQRModal(true);
-                                    }}
-                                    className="px-3 py-1.5 bg-emerald-600/20 border border-emerald-500/30 hover:bg-emerald-600/40 text-emerald-300 rounded-lg text-xs font-medium transition"
-                                  >
-                                    Scan & Collect
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setActiveTarget(t);
-                                      setActiveAssignmentId(a.id);
-                                      setShowMissModal(true);
-                                    }}
-                                    className="px-3 py-1.5 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-300 rounded-lg text-xs font-medium transition"
-                                  >
-                                    Miss
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setActiveTarget(t);
-                                      setActiveAssignmentId(a.id);
-                                      setShowSkipModal(true);
-                                    }}
-                                    className="px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 text-cyan-300 rounded-lg text-xs font-medium transition"
-                                  >
-                                    Skip
-                                  </button>
-                                </>
-                              ) : (
-                                <span className="text-xs font-semibold px-2.5 py-1 bg-slate-800 rounded-lg border border-slate-700">
-                                  {t.status}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+          {/* Categorized Assignment Cards */}
+          <div className="space-y-10">
+            {todayItems.length > 0 && (
+              <div>
+                <h2 className="text-sm font-bold text-emerald-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <span>📅</span> Today's Assignments
+                </h2>
+                <div className="space-y-6">
+                  {todayItems.map((a, idx) => renderAssignmentCard(a, idx))}
                 </div>
-              );
-            })}
+              </div>
+            )}
+
+            {upcomingList.length > 0 && (
+              <div>
+                <h2 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <span>🔜</span> Upcoming Assignments
+                </h2>
+                <div className="space-y-6">
+                  {upcomingList.map((a, idx) => renderAssignmentCard(a, idx))}
+                </div>
+              </div>
+            )}
+
+            {completedList.length > 0 && (
+              <div>
+                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <span>✅</span> Completed Assignments
+                </h2>
+                <div className="space-y-6 opacity-80">
+                  {completedList.map((a, idx) => renderAssignmentCard(a, idx))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Refresh button */}

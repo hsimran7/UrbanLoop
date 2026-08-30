@@ -23,12 +23,24 @@ export class GeoService {
     const city = await this.prisma.city.create({
       data: {
         name: dto.name.trim(),
-        state: dto.state.trim(),
+        districtId: dto.districtId,
       },
     });
 
     await this.auditService.log(userId, 'CREATE_CITY', ip, ua, { cityId: city.id, name: city.name });
     return city;
+  }
+
+  async getStates() {
+    return this.prisma.state.findMany({ orderBy: { name: 'asc' } });
+  }
+
+  async getDistrictsByState(stateId: string) {
+    return this.prisma.district.findMany({ where: { stateId }, orderBy: { name: 'asc' } });
+  }
+
+  async getCitiesByDistrict(districtId: string) {
+    return this.prisma.city.findMany({ where: { districtId }, orderBy: { name: 'asc' } });
   }
 
   async getCities() {
@@ -123,6 +135,20 @@ export class GeoService {
     }
     return this.prisma.area.findMany({
       where: { wardId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getZonesByArea(areaId: string) {
+    return this.prisma.serviceZone.findMany({
+      where: { areaId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getStreetsByZone(serviceZoneId: string) {
+    return this.prisma.street.findMany({
+      where: { serviceZoneId },
       orderBy: { name: 'asc' },
     });
   }

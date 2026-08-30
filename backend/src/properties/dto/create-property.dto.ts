@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString, IsUUID } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsNumber, IsString, IsUUID, IsOptional } from 'class-validator';
 
 export class CreatePropertyDto {
   @ApiProperty({ example: '123 Oak Street' })
@@ -17,8 +17,33 @@ export class CreatePropertyDto {
   @IsNotEmpty({ message: 'Longitude is required.' })
   longitude: number;
 
-  @ApiProperty({ example: 'a1b2c3d4-e5f6-g7h8...' })
+  @ApiPropertyOptional({ example: 'a1b2c3d4-e5f6-g7h8...' })
   @IsUUID(undefined, { message: 'Area ID must be a valid UUID.' })
-  @IsNotEmpty({ message: 'Area ID is required.' })
-  areaId: string;
+  @IsOptional()
+  areaId?: string;
+
+  @ApiPropertyOptional({ example: 'Maharashtra' })
+  @IsString()
+  @IsOptional()
+  stateName?: string;
+
+  @ApiPropertyOptional({ example: 'Mumbai' })
+  @IsString()
+  @IsOptional()
+  cityName?: string;
+
+  @ApiPropertyOptional({ example: 'Colaba Central' })
+  @IsString()
+  @IsOptional()
+  areaName?: string;
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsNumber()
+  @IsOptional()
+  wardNumber?: number;
+
+  @ApiPropertyOptional({ example: 'Colaba Ward' })
+  @IsString()
+  @IsOptional()
+  wardName?: string;
 }

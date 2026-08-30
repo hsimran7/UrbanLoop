@@ -7,8 +7,8 @@ export class CreateCityDto {
   @IsNotEmpty({ message: 'City name is required.' })
   name: string;
 
-  @ApiProperty({ example: 'California' })
-  @IsString({ message: 'State name must be a string.' })
-  @IsNotEmpty({ message: 'State name is required.' })
-  state: string;
+  @ApiProperty({ example: 'dist-uuid-123' })
+  @IsString({ message: 'District ID must be a string.' })
+  @IsNotEmpty({ message: 'District ID is required.' })
+  districtId: string;
 }

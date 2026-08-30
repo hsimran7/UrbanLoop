@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Ip,
   Headers,
@@ -43,10 +44,111 @@ export class BinsController {
     return this.binsService.create(dto, adminId, ip, ua);
   }
 
+  @Post('register')
+  @Roles(UserRole.CITIZEN)
+  @ApiOperation({ summary: 'Register a new waste bin (Citizen)' })
+  async registerBin(
+    @Body() dto: CreateBinDto,
+    @GetUser('id') userId: string,
+    @Ip() ip: string,
+    @Headers('user-agent') ua: string,
+  ) {
+    return this.binsService.registerBin(dto, userId, ip, ua);
+  }
+
+  @Patch(':id/verify')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL)
+  @ApiOperation({ summary: 'Approve or reject bin registration (Admin/Official only)' })
+  async verifyBin(
+    @Param('id') id: string,
+    @Body('status') status: 'VERIFIED' | 'REJECTED',
+    @GetUser('id') adminId: string,
+    @Ip() ip: string,
+    @Headers('user-agent') ua: string,
+  ) {
+    return this.binsService.verifyBin(id, status, adminId, ip, ua);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get list of bins (filtered by role)' })
   async findAll(@GetUser() user: any) {
     return this.binsService.findAll(user);
+  }
+
+  @Get('hierarchy')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Get geographical hierarchy structure' })
+  async getHierarchy() {
+    return this.binsService.getHierarchy();
+  }
+
+  @Get('area-summaries')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Get summary metrics grouped by Area' })
+  async getAreaSummaries(@Query() query: any) {
+    return this.binsService.getAreaSummaries(query);
+  }
+
+  @Get('area-notifications')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Get operational alerts at area level' })
+  async getAreaNotifications(@Query() query: any) {
+    return this.binsService.getAreaNotifications(query);
+  }
+
+  @Get('operational-queue')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Get prioritized queue of areas' })
+  async getOperationalQueue(@Query() query: any) {
+    return this.binsService.getOperationalQueue(query);
+  }
+
+  @Get('area-drilldown/:areaId')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Get deep drilldown operations metrics for a specific area' })
+  async getAreaDrilldown(@Param('areaId') areaId: string) {
+    return this.binsService.getAreaDrilldown(areaId);
+  }
+
+  @Get('predictive-intelligence')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Get predictive operational forecasts' })
+  async getPredictiveIntelligence(@Query() query: any) {
+    return this.binsService.getPredictiveIntelligence(query);
+  }
+
+  @Get('live-activity')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Get chronological activity stream' })
+  async getLiveActivity(@Query() query: any) {
+    return this.binsService.getLiveActivity(query);
+  }
+
+  @Get('resource-allocation')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Get resource allocation vs requirement' })
+  async getResourceAllocation(@Query() query: any) {
+    return this.binsService.getResourceAllocation(query);
+  }
+
+  @Get('ai-recommendations')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Get automated AI-driven recommendations' })
+  async getAiRecommendations(@Query() query: any) {
+    return this.binsService.getAiRecommendations(query);
+  }
+
+  @Post('actions/:action')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Execute command action log' })
+  async executeAction(
+    @Param('action') action: string,
+    @Body() body: any,
+    @GetUser('id') userId: string,
+    @Ip() ip: string,
+    @Headers('user-agent') ua: string,
+  ) {
+    return this.binsService.executeCommandAction(action, body, userId, ip, ua);
   }
 
   @Get(':id')

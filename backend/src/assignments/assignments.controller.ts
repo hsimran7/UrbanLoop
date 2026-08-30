@@ -63,11 +63,76 @@ export class AssignmentsController {
     return this.assignmentsService.getAssignmentsList(date);
   }
 
+  @Post()
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Create manual daily collection assignment' })
+  async createManualAssignment(
+    @Body() dto: any,
+    @GetUser('id') adminId: string,
+    @Ip() ip: string,
+    @Headers('user-agent') ua: string,
+  ) {
+    return this.assignmentsService.createManualAssignment(dto, adminId, ip, ua);
+  }
+
+  @Post('manual-planner')
+  @Roles(UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL, UserRole.SUPERVISOR)
+  @ApiOperation({ summary: 'Create an advanced manual daily collection assignment (Planner)' })
+  async createAdvancedManualAssignment(
+    @Body() dto: any,
+    @GetUser('id') adminId: string,
+    @Ip() ip: string,
+    @Headers('user-agent') ua: string,
+  ) {
+    return this.assignmentsService.createAdvancedManualAssignment(dto, adminId, ip, ua);
+  }
+
   @Get('my-today')
-  @Roles(UserRole.WORKER)
+  @Roles(UserRole.WORKER, UserRole.SUPERVISOR, UserRole.GOVERNMENT_OFFICIAL)
   @ApiOperation({ summary: 'Worker portal: Get today\'s active assignments' })
   async getWorkerToday(@GetUser('id') userId: string) {
     return this.assignmentsService.getWorkerTodayAssignments(userId);
+  }
+
+  @Get('my-schedule')
+  @Roles(UserRole.WORKER)
+  @ApiOperation({ summary: 'Worker portal: Get 7-day weekly schedule' })
+  async getWorkerSchedule(@GetUser('id') userId: string) {
+    return this.assignmentsService.getWorkerWeeklySchedule(userId);
+  }
+
+  @Get('my-summary')
+  @Roles(UserRole.WORKER)
+  @ApiOperation({ summary: 'Worker portal: Get daily work summary' })
+  async getWorkerSummary(
+    @GetUser('id') userId: string,
+    @Query('date') date?: string,
+  ) {
+    return this.assignmentsService.getWorkerDailySummary(userId, date);
+  }
+
+  @Get('my-notifications')
+  @Roles(UserRole.WORKER, UserRole.CITIZEN, UserRole.SUPERVISOR, UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL)
+  @ApiOperation({ summary: 'Get notifications for logged in user' })
+  async getWorkerNotifications(@GetUser('id') userId: string) {
+    return this.assignmentsService.getWorkerNotifications(userId);
+  }
+
+  @Post('my-notifications/read-all')
+  @Roles(UserRole.WORKER, UserRole.CITIZEN, UserRole.SUPERVISOR, UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL)
+  @ApiOperation({ summary: 'Mark all notifications read' })
+  async markAllNotificationsRead(@GetUser('id') userId: string) {
+    return this.assignmentsService.markAllNotificationsRead(userId);
+  }
+
+  @Post('my-notifications/:id/read')
+  @Roles(UserRole.WORKER, UserRole.CITIZEN, UserRole.SUPERVISOR, UserRole.SYSTEM_ADMIN, UserRole.GOVERNMENT_OFFICIAL)
+  @ApiOperation({ summary: 'Mark notification as read' })
+  async markNotificationRead(
+    @Param('id') notificationId: string,
+    @GetUser('id') userId: string,
+  ) {
+    return this.assignmentsService.markNotificationRead(notificationId, userId);
   }
 
   @Post(':id/start')
@@ -134,6 +199,34 @@ export class AssignmentsController {
     @Headers('user-agent') ua: string,
   ) {
     return this.assignmentsService.skipTarget(assignmentId, targetId, dto, userId, userRole, ip, ua);
+  }
+
+  @Get('worker/today')
+  @Roles(UserRole.WORKER)
+  @ApiOperation({ summary: 'Worker portal: Get today assignments' })
+  async getWorkerTodayAssignments(@GetUser('id') userId: string) {
+    return this.assignmentsService.getWorkerTodayAssignments(userId);
+  }
+
+  @Post(':id/accept')
+  @Roles(UserRole.WORKER)
+  @ApiOperation({ summary: 'Worker portal: Accept assignment' })
+  async acceptAssignment(
+    @Param('id') assignmentId: string,
+    @GetUser('id') userId: string,
+  ) {
+    return this.assignmentsService.acceptAssignment(assignmentId, userId);
+  }
+
+  @Post(':id/reject')
+  @Roles(UserRole.WORKER)
+  @ApiOperation({ summary: 'Worker portal: Reject assignment' })
+  async rejectAssignment(
+    @Param('id') assignmentId: string,
+    @GetUser('id') userId: string,
+    @Body('reason') reason: string,
+  ) {
+    return this.assignmentsService.rejectAssignment(assignmentId, userId, reason || 'No reason provided');
   }
 
   @Post(':id/complete')

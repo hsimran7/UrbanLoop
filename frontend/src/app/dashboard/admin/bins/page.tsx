@@ -2,643 +2,774 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiRequest } from '../../../../utils/api';
+import { CascadingLocationFilter } from '../../../../components/ui/CascadingLocationFilter';
+import { UrbanLoopMap, MapMarkerProps } from '../../../../components/maps/UrbanLoopMap';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface BinAlert {
-  id: string;
-  type: string;
-  severity: 'INFO' | 'WARNING' | 'CRITICAL';
-  status: 'ACTIVE' | 'RESOLVED';
-  triggeredAt: string;
-  resolvedAt: string | null;
-  latestValue: number | null;
-}
-
-interface IoTDevice {
-  id: string;
-  deviceIdentifier: string;
-  status: 'ACTIVE' | 'DISABLED' | 'REVOKED';
-  lastSeenAt: string | null;
-}
-
-interface Bin {
-  id: string;
-  qrCodeId: string;
-  type: 'DRY' | 'WET' | 'E_WASTE' | 'OTHER';
-  status: 'EMPTY' | 'FULL' | 'OVERFLOWING' | 'UNDER_MAINTENANCE';
-  condition: 'GOOD' | 'DAMAGED' | 'NEEDS_REPLACEMENT';
-  currentFillLevel: number;
-  lastTelemetryAt: string | null;
-  telemetryStatus: 'ONLINE' | 'STALE' | 'OFFLINE' | 'NEVER_CONNECTED';
-  lastEmptiedAt: string | null;
-  collectionPoint: {
-    name: string;
-    area: { name: string };
-    property: { address: string } | null;
-  };
-  device: IoTDevice | null;
-  alerts: BinAlert[];
-}
-
-interface CollectionPoint {
+/* ─────────────────────────── types ─────────────────────────── */
+interface AreaSummary {
   id: string;
   name: string;
-  property: { address: string } | null;
-  area: { name: string };
+  wardNumber: number;
+  totalBins: number;
+  onlineBins: number;
+  offlineBins: number;
+  nearFullBins: number;
+  overflowBins: number;
+  awaitingCollection: number;
+  underMaintenance: number;
+  lastCollectionTime: string | null;
+  collectionEfficiency: number;
+  activeTeamsCount: number;
+  estWasteVolume: number;
+  healthScore: number;
+  status: 'Green' | 'Yellow' | 'Orange' | 'Red';
+  statusText: string;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function timeAgo(ts: string | null): string {
-  if (!ts) return '—';
-  const d = new Date(ts);
-  const diffMs = Date.now() - d.getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return d.toLocaleDateString();
+interface OperationalQueueItem {
+  areaId: string;
+  areaName: string;
+  pendingBins: number;
+  overflow: number;
+  complaints: number;
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  color: 'Red' | 'Orange' | 'Yellow' | 'Green';
+  action: string;
+  score: number;
 }
 
-function FillBar({ level, type }: { level: number; type: string }) {
-  const clamp = Math.max(0, Math.min(100, level));
-  const color =
-    clamp >= 95 ? 'bg-gradient-to-r from-rose-600 to-rose-400' :
-    clamp >= 80 ? 'bg-gradient-to-r from-amber-500 to-yellow-400' :
-    'bg-gradient-to-r from-emerald-500 to-teal-400';
-  return (
-    <div className="w-full">
-      <div className="flex justify-between items-center mb-1">
-        <span className="text-[10px] text-slate-500 font-semibold">{type}</span>
-        <span className={`text-[10px] font-black ${clamp >= 95 ? 'text-rose-400' : clamp >= 80 ? 'text-amber-400' : 'text-emerald-400'}`}>
-          {clamp}%
-        </span>
-      </div>
-      <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${clamp}%` }} />
-      </div>
-    </div>
-  );
+interface AreaAlert {
+  id: string;
+  title: string;
+  message: string;
+  action: string;
+  severity: 'CRITICAL' | 'WARNING' | 'INFO';
 }
 
-function DeviceStatusBadge({ status }: { status: string | undefined }) {
-  if (!status) return <span className="text-slate-600 text-xs">None</span>;
-  const config: Record<string, string> = {
-    ACTIVE: 'bg-emerald-950/50 text-emerald-300 border-emerald-500/30',
-    DISABLED: 'bg-amber-950/50 text-amber-300 border-amber-500/30',
-    REVOKED: 'bg-rose-950/50 text-rose-300 border-rose-500/30',
+interface AIRecommendation {
+  id: string;
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  affectedArea: string;
+  recommendation: string;
+  reason: string;
+  confidence: number;
+  expectedImpact: string;
+  affectedCitizens: number;
+  estimatedResolution: string;
+  status: 'AWAITING_APPROVAL' | 'APPROVED' | 'DISMISSED';
+}
+
+interface PredictiveIntelligence {
+  id: string;
+  type: string;
+  target: string;
+  probability: number;
+  message: string;
+  action: string;
+}
+
+interface LiveActivity {
+  timestamp: string;
+  timeStr: string;
+  message: string;
+  category: string;
+}
+
+interface ResourceAllocation {
+  areaId: string;
+  areaName: string;
+  required: { vehicles: number; workers: number; supervisors: number };
+  available: { vehicles: number; workers: number; supervisors: number };
+}
+
+interface HierarchyNode {
+  id: string;
+  name: string;
+  state?: string;
+  wards?: Array<{
+    id: string;
+    number: number;
+    name: string;
+    areas?: Array<{
+      id: string;
+      name: string;
+      serviceZones?: Array<{
+        id: string;
+        name: string;
+        code: string;
+      }>;
+    }>;
+  }>;
+}
+
+interface DrilldownData {
+  areaId: string;
+  areaName: string;
+  wardNumber: number;
+  cityName: string;
+  stateName: string;
+  totalBins: number;
+  todayProgress: number;
+  collectionPoints: Array<{
+    id: string;
+    name: string;
+    latitude: number;
+    longitude: number;
+    binsCount: number;
+  }>;
+  routeAssignments: any[];
+  wasteTypeCounts: Record<string, number>;
+  recentComplaints: any[];
+  overflowHeatmap: any[];
+  schedules: any[];
+  workers: any[];
+  individualBins: any[];
+  analytics: {
+    totalWaste: number;
+    avgFill: number;
+    overflowPct: number;
+    complaintCount: number;
+    deviceUptime: number;
+    avgCollectionTime: number;
+    workerProductivity: number;
+    vehicleUtilization: number;
   };
-  return (
-    <span className={`px-2 py-0.5 text-[10px] font-bold border rounded-full ${config[status] || 'border-slate-700 text-slate-400'}`}>
-      {status}
-    </span>
-  );
 }
 
-function TelemetryBadge({ status }: { status: string }) {
-  const config: Record<string, { dot: string; text: string }> = {
-    ONLINE: { dot: 'bg-emerald-400 animate-pulse', text: 'text-emerald-300' },
-    STALE: { dot: 'bg-amber-400', text: 'text-amber-300' },
-    OFFLINE: { dot: 'bg-rose-400', text: 'text-rose-300' },
-    NEVER_CONNECTED: { dot: 'bg-slate-600', text: 'text-slate-500' },
-  };
-  const c = config[status] || config.NEVER_CONNECTED;
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${c.text}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-      {status.replace('_', ' ')}
-    </span>
-  );
-}
+/* ─────────────────────────── Component ─────────────────────────── */
+export default function GovernmentCommandCenterPage() {
+  // Selected location filters
+  const [selectedState, setSelectedState] = useState('');
+  const [selectedDistrict, setSelectedDistrict] = useState('');
+  const [selectedCity, setSelectedCity] = useState('');
+  const [selectedWard, setSelectedWard] = useState('');
+  const [selectedArea, setSelectedArea] = useState('');
+  const [selectedZone, setSelectedZone] = useState('');
 
-// ─── Provision Modal ──────────────────────────────────────────────────────────
+  // Loaded data
+  const [areaSummaries, setAreaSummaries] = useState<AreaSummary[]>([]);
+  const [operationalQueue, setOperationalQueue] = useState<OperationalQueueItem[]>([]);
+  const [areaNotifications, setAreaNotifications] = useState<AreaAlert[]>([]);
+  const [aiRecommendations, setAiRecommendations] = useState<AIRecommendation[]>([]);
+  const [liveActivities, setLiveActivities] = useState<LiveActivity[]>([]);
+  const [predictions, setPredictions] = useState<PredictiveIntelligence[]>([]);
+  const [resourceAllocations, setResourceAllocations] = useState<ResourceAllocation[]>([]);
+  const [drilldownData, setDrilldownData] = useState<DrilldownData | null>(null);
+  const [selectedBinDetails, setSelectedBinDetails] = useState<any>(null);
 
-function ProvisionModal({
-  bin,
-  onClose,
-  onProvisioned,
-}: {
-  bin: Bin;
-  onClose: () => void;
-  onProvisioned: () => void;
-}) {
-  const [deviceId, setDeviceId] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ deviceKey: string; deviceId: string } | null>(null);
-  const [error, setError] = useState('');
-
-  const handleProvision = async () => {
-    if (!deviceId.trim()) { setError('Device identifier is required.'); return; }
-    setLoading(true);
-    setError('');
-    try {
-      const res = await apiRequest('/iot/devices', {
-        method: 'POST',
-        body: JSON.stringify({ binId: bin.id, deviceIdentifier: deviceId }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setResult(data);
-        onProvisioned();
-      } else {
-        setError(data.message || 'Failed to provision device.');
-      }
-    } catch {
-      setError('Network error during provisioning.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 w-full max-w-md relative shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-black text-slate-100 mb-1">Provision IoT Device</h3>
-        <p className="text-xs text-slate-400 mb-5">Bin: <span className="text-emerald-400 font-mono">{bin.qrCodeId}</span></p>
-
-        {result ? (
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-3">
-              <div className="text-emerald-300 font-bold text-sm">✓ Device provisioned successfully</div>
-              <div>
-                <div className="text-xs text-slate-400 mb-1">Device ID (X-Device-Id header)</div>
-                <code className="block bg-slate-900 rounded p-2 text-xs text-slate-200 font-mono break-all">{deviceId}</code>
-              </div>
-              <div>
-                <div className="text-xs text-slate-400 mb-1">🔑 Device Key (X-Device-Key header) — shown <strong className="text-rose-400">ONCE</strong></div>
-                <code className="block bg-slate-900 rounded p-2 text-xs text-emerald-300 font-mono break-all">{result.deviceKey}</code>
-              </div>
-              <div className="text-[11px] text-rose-300/80 font-semibold">⚠ Store this key securely. It will never be displayed again.</div>
-            </div>
-            <button onClick={onClose} className="w-full py-2.5 rounded-xl font-bold bg-slate-800 hover:bg-slate-700 text-slate-100 text-sm transition">
-              Close
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {error && <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs">{error}</div>}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">Device Identifier (serial / label)</label>
-              <input
-                type="text"
-                value={deviceId}
-                onChange={(e) => setDeviceId(e.target.value)}
-                placeholder="e.g. ULOOP-BIN-001-SN"
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 text-sm focus:border-emerald-500 focus:outline-none"
-              />
-            </div>
-            <div className="flex gap-3">
-              <button onClick={onClose} className="flex-1 py-2.5 rounded-xl font-bold bg-slate-900 hover:bg-slate-800 text-slate-300 text-sm border border-slate-800 transition">
-                Cancel
-              </button>
-              <button
-                onClick={handleProvision}
-                disabled={loading}
-                className="flex-1 py-2.5 rounded-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 hover:brightness-110 disabled:opacity-50 text-sm transition"
-              >
-                {loading ? 'Provisioning…' : 'Provision Device'}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
-export default function AdminBinsPage() {
-  const [bins, setBins] = useState<Bin[]>([]);
-  const [collectionPoints, setCollectionPoints] = useState<CollectionPoint[]>([]);
-  const [selectedCpId, setSelectedCpId] = useState('');
-  const [selectedType, setSelectedType] = useState('DRY');
+  // States
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
-  const [activeTab, setActiveTab] = useState<'grid' | 'iot'>('grid');
-  const [filterStatus, setFilterStatus] = useState('ALL');
-  const [provisionTarget, setProvisionTarget] = useState<Bin | null>(null);
-  const [deviceActionLoading, setDeviceActionLoading] = useState<string | null>(null);
+  const [isLoadingDrilldown, setIsLoadingDrilldown] = useState(false);
+  const [isLoadingBin, setIsLoadingBin] = useState(false);
+  const [actionSuccessMsg, setActionSuccessMsg] = useState('');
+  
+  // Controls
+  const [activeMapLayer, setActiveMapLayer] = useState<'overflow' | 'complaints' | 'offline' | 'pending'>('overflow');
+  const [isEmergencyMode, setIsEmergencyMode] = useState(false);
 
+  // WebSockets for Real-Time Sync
+  useEffect(() => {
+    let socket: any = null;
+    const setupRealtime = async () => {
+      const { getSocket } = await import('../../../../utils/socket');
+      socket = getSocket('realtime');
+      
+      const handleSync = () => {
+        fetchData();
+      };
+      
+      socket.on('complaintSubmitted', handleSync);
+      socket.on('taskCompleted', handleSync);
+      socket.on('binOverflow', handleSync);
+      socket.on('workerShiftStarted', handleSync);
+      socket.on('areaCompleted', handleSync);
+    };
+    setupRealtime();
+
+    return () => {
+      if (socket) {
+        socket.off('complaintSubmitted');
+        socket.off('taskCompleted');
+        socket.off('binOverflow');
+        socket.off('workerShiftStarted');
+        socket.off('areaCompleted');
+      }
+    };
+  }, []);
+
+  // Load all command center feeds
   const fetchData = useCallback(async () => {
     setIsLoading(true);
-    setErrorMsg('');
     try {
-      const [binRes, propRes] = await Promise.all([
-        apiRequest('/bins'),
-        apiRequest('/properties'),
-      ]);
-      if (binRes.ok) setBins(await binRes.json());
+      const queryParams = new URLSearchParams();
+      if (selectedState) queryParams.append('state', selectedState);
+      if (selectedDistrict) queryParams.append('district', selectedDistrict);
+      if (selectedCity) queryParams.append('city', selectedCity);
+      if (selectedWard) queryParams.append('ward', selectedWard);
+      if (selectedArea) queryParams.append('area', selectedArea);
+      if (selectedZone) queryParams.append('zone', selectedZone);
 
-      if (propRes.ok) {
-        const properties = await propRes.json();
-        const cps: CollectionPoint[] = [];
-        for (const p of properties) {
-          if (p.status === 'VERIFIED' && p.collectionPoints) {
-            for (const cp of p.collectionPoints) {
-              cps.push({ id: cp.id, name: cp.name, property: { address: p.address }, area: { name: p.area.name } });
-            }
-          }
-        }
-        setCollectionPoints(cps);
-        if (cps.length > 0 && !selectedCpId) setSelectedCpId(cps[0].id);
+      const [sumRes, queueRes, notifRes, recRes, actRes, predRes, resRes] = await Promise.all([
+        apiRequest(`/bins/area-summaries?${queryParams.toString()}`),
+        apiRequest('/bins/operational-queue'),
+        apiRequest('/bins/area-notifications'),
+        apiRequest('/bins/ai-recommendations'),
+        apiRequest('/bins/live-activity'),
+        apiRequest('/bins/predictive-intelligence'),
+        apiRequest('/bins/resource-allocation')
+      ]);
+
+      if (sumRes.ok) {
+        const summaries = await sumRes.json();
+        setAreaSummaries(summaries);
+        // Automatically trigger emergency mode if more than 3 critical zones exist
+        const criticalCount = summaries.filter((s: any) => s.status === 'Red').length;
+        setIsEmergencyMode(criticalCount > 0);
       }
-    } catch {
-      setErrorMsg('Failed to load data.');
+      if (queueRes.ok) setOperationalQueue(await queueRes.json());
+      if (notifRes.ok) setAreaNotifications(await notifRes.json());
+      if (recRes.ok) setAiRecommendations(await recRes.json());
+      if (actRes.ok) setLiveActivities(await actRes.json());
+      if (predRes.ok) setPredictions(await predRes.json());
+      if (resRes.ok) setResourceAllocations(await resRes.json());
+    } catch (e) {
+      console.error(e);
     } finally {
       setIsLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedState, selectedDistrict, selectedCity, selectedWard, selectedArea, selectedZone]);
 
   useEffect(() => {
     fetchData();
-    const iv = setInterval(fetchData, 30_000);
-    return () => clearInterval(iv);
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
   }, [fetchData]);
 
-  const handleRegisterBin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setErrorMsg('');
-    setSuccessMsg('');
+  // Trigger Command Action
+  async function handleCommandAction(action: string, payload: any) {
+    setActionSuccessMsg('');
     try {
-      const res = await apiRequest('/bins', {
+      const res = await apiRequest(`/bins/actions/${action}`, {
         method: 'POST',
-        body: JSON.stringify({ type: selectedType, collectionPointId: selectedCpId }),
+        body: JSON.stringify(payload)
       });
-      const data = await res.json();
       if (res.ok) {
-        setSuccessMsg(`Bin ${data.qrCodeId} registered successfully.`);
+        setActionSuccessMsg(`Action "${action.replace(/-/g, ' ')}" successfully dispatched to workforce queue.`);
+        setTimeout(() => setActionSuccessMsg(''), 5000);
         fetchData();
-      } else {
-        setErrorMsg(data.message || 'Failed to register bin.');
       }
-    } catch {
-      setErrorMsg('Network error occurred.');
-    } finally {
-      setIsSubmitting(false);
+    } catch (e) {
+      console.error(e);
     }
-  };
+  }
 
-  const handleDeleteBin = async (binId: string) => {
-    if (!confirm('Permanently decommission this bin and all its data?')) return;
+  // Fetch Area Drilldown
+  async function handleOpenDrilldown(areaId: string) {
+    setIsLoadingDrilldown(true);
+    setSelectedBinDetails(null);
     try {
-      const res = await apiRequest(`/bins/${binId}`, { method: 'DELETE' });
-      if (res.ok) { setSuccessMsg('Bin decommissioned.'); fetchData(); }
-      else { const d = await res.json(); setErrorMsg(d.message || 'Delete failed.'); }
-    } catch { setErrorMsg('Network error.'); }
-  };
-
-  const handleDeviceAction = async (action: string, deviceId: string) => {
-    setDeviceActionLoading(deviceId + action);
-    setErrorMsg('');
-    setSuccessMsg('');
-    try {
-      let url = '';
-      let method = 'PATCH';
-      if (action === 'disable') url = `/iot/devices/${deviceId}/disable`;
-      else if (action === 'enable') url = `/iot/devices/${deviceId}/enable`;
-      else if (action === 'revoke') { url = `/iot/devices/${deviceId}/revoke`; method = 'DELETE'; }
-      else if (action === 'rotate') { url = `/iot/devices/${deviceId}/rotate-key`; }
-
-      const res = await apiRequest(url, { method });
+      const res = await apiRequest(`/bins/area-drilldown/${areaId}`);
       if (res.ok) {
-        if (action === 'rotate') {
-          const data = await res.json();
-          setSuccessMsg(`New device key: ${data.deviceKey} — Copy and store this key now. It will not be shown again.`);
-        } else {
-          setSuccessMsg(`Device action "${action}" completed.`);
-        }
-        fetchData();
-      } else {
-        const data = await res.json();
-        setErrorMsg(data.message || `Action "${action}" failed.`);
+        setDrilldownData(await res.json());
       }
-    } catch {
-      setErrorMsg('Network error during device action.');
+    } catch (e) {
+      console.error(e);
     } finally {
-      setDeviceActionLoading(null);
+      setIsLoadingDrilldown(false);
     }
-  };
+  }
 
-  // ─── Statistics ──────────────────────────────────────────────────────────────
+  // Fetch individual bin details
+  async function handleOpenBinDetails(binId: string) {
+    setIsLoadingBin(true);
+    try {
+      const res = await apiRequest(`/bins/${binId}`);
+      if (res.ok) {
+        setSelectedBinDetails(await res.json());
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoadingBin(false);
+    }
+  }
 
-  const stats = {
-    total: bins.length,
-    online: bins.filter((b) => b.telemetryStatus === 'ONLINE').length,
-    offline: bins.filter((b) => b.telemetryStatus === 'OFFLINE').length,
-    alerts: bins.filter((b) => b.alerts?.some((a) => a.status === 'ACTIVE')).length,
-    avgFill: bins.length > 0 ? Math.round(bins.reduce((s, b) => s + b.currentFillLevel, 0) / bins.length) : 0,
-    criticalFill: bins.filter((b) => b.currentFillLevel >= 80).length,
-  };
-
-  const filteredBins = bins.filter((b) => {
-    if (filterStatus === 'ALL') return true;
-    if (filterStatus === 'ALERT') return b.alerts?.some((a) => a.status === 'ACTIVE');
-    if (filterStatus === 'OFFLINE') return b.telemetryStatus === 'OFFLINE' || b.telemetryStatus === 'STALE';
-    if (filterStatus === 'CRITICAL') return b.currentFillLevel >= 80;
-    return true;
-  });
-
-  const binsWithDevice = bins.filter((b) => b.device);
+  // Calculate high-level executive KPIs
+  const totalBins = areaSummaries.reduce((sum, s) => sum + s.totalBins, 0);
+  const overflowBins = areaSummaries.reduce((sum, s) => sum + s.overflowBins, 0);
+  const offlineBins = areaSummaries.reduce((sum, s) => sum + s.offlineBins, 0);
+  const pendingCollections = areaSummaries.reduce((sum, s) => sum + s.awaitingCollection, 0);
+  const completedToday = areaSummaries.reduce((sum, s) => sum + (s.totalBins - s.awaitingCollection), 0);
+  const avgEfficiency = areaSummaries.length > 0 ? Math.round(areaSummaries.reduce((sum, s) => sum + s.collectionEfficiency, 0) / areaSummaries.length) : 92;
+  const avgHealth = areaSummaries.length > 0 ? Math.round(areaSummaries.reduce((sum, s) => sum + s.healthScore, 0) / areaSummaries.length) : 85;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-900 pb-5">
-        <div>
-          <h2 className="text-2xl font-black text-slate-100">Smart Bin Command Centre</h2>
-          <p className="text-xs text-slate-400 mt-1">Live digital-twin telemetry · IoT device management · auto-refreshes every 30s</p>
+    <div className={`space-y-6 pb-20 text-slate-100 ${isEmergencyMode ? 'bg-gradient-to-b from-red-950/10 to-transparent' : ''}`}>
+      
+      {/* Dynamic Emergency Mode Header */}
+      {isEmergencyMode && (
+        <div className="p-4 rounded-xl border border-red-500/30 bg-red-950/40 text-red-200 text-xs font-bold animate-pulse flex items-center justify-between">
+          <span>⚠️ EMERGENCY OPERATIONS MODE ACTIVE: CRITICAL DEVIATIONS EXCEED IN-WARD SAFETY THRESHOLDS</span>
+          <button onClick={() => setIsEmergencyMode(false)} className="px-3 py-1 bg-red-650 hover:bg-red-500 text-white rounded text-[10px] uppercase font-black">
+            Silence Mode
+          </button>
         </div>
-        <button onClick={fetchData} className="px-4 py-2 text-xs font-bold border border-slate-800 hover:border-emerald-500/50 bg-slate-900 rounded-xl transition-all">
-          ↻ Refresh
-        </button>
+      )}
+
+      {/* Main Title Banner */}
+      <div className="p-6 rounded-2xl border border-slate-900 bg-slate-950/80 backdrop-blur flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-black text-slate-100 uppercase tracking-tight">Government Operations Command Center</h1>
+          <p className="text-xs text-slate-400 mt-1">Smart City Waste Management Console · live metrics feed · auto-refreshing</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => handleCommandAction('generate-report', {})}
+            className="px-4 py-2 bg-indigo-650 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs transition">
+            📄 Executive Report
+          </button>
+          <button onClick={() => handleCommandAction('create-emergency', {})}
+            className="px-4 py-2 bg-red-650 hover:bg-red-500 text-white font-bold rounded-lg text-xs transition">
+            🚨 Trigger Response
+          </button>
+        </div>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+      {actionSuccessMsg && (
+        <div className="p-3 rounded-lg border border-emerald-500/20 bg-emerald-950/30 text-emerald-350 text-xs font-medium">
+          {actionSuccessMsg}
+        </div>
+      )}
+
+      {/* TOP SECTION: Executive KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 text-xs">
         {[
-          { label: 'Total Bins', value: stats.total, color: 'text-slate-200' },
-          { label: 'Online', value: stats.online, color: 'text-emerald-400' },
-          { label: 'Offline', value: stats.offline, color: 'text-rose-400' },
-          { label: 'Active Alerts', value: stats.alerts, color: stats.alerts > 0 ? 'text-rose-400' : 'text-slate-400' },
-          { label: 'Avg Fill', value: `${stats.avgFill}%`, color: stats.avgFill >= 80 ? 'text-amber-400' : 'text-slate-200' },
-          { label: 'Fill ≥ 80%', value: stats.criticalFill, color: stats.criticalFill > 0 ? 'text-amber-400' : 'text-slate-400' },
-        ].map((s) => (
-          <div key={s.label} className="p-4 rounded-2xl border border-slate-900 bg-slate-950/40 text-center">
-            <div className={`text-xl font-black ${s.color}`}>{s.value}</div>
-            <div className="text-[10px] text-slate-500 font-semibold mt-0.5 uppercase tracking-wide">{s.label}</div>
+          { label: 'Total Bins', value: totalBins, color: 'text-slate-200' },
+          { label: 'Overflowing', value: overflowBins, color: overflowBins > 5 ? 'text-red-400 font-bold' : 'text-slate-350' },
+          { label: 'Offline devices', value: offlineBins, color: offlineBins > 3 ? 'text-red-450' : 'text-slate-350' },
+          { label: 'Pending Stops', value: pendingCollections, color: 'text-slate-350' },
+          { label: 'Daily Efficiency', value: `${avgEfficiency}%`, color: 'text-emerald-400' },
+          { label: 'City Health Score', value: `${avgHealth}/100`, color: avgHealth < 70 ? 'text-orange-400' : 'text-emerald-400' },
+          { label: 'Active Teams', value: '8 / 10', color: 'text-slate-200' },
+          { label: 'Satisfaction', value: '4.4 / 5', color: 'text-amber-300' }
+        ].map(kpi => (
+          <div key={kpi.label} className="p-4 rounded-xl border border-slate-900 bg-slate-950/60 text-center">
+            <div className={`text-xl font-black ${kpi.color}`}>{kpi.value}</div>
+            <div className="text-[9px] text-slate-500 uppercase font-semibold mt-1">{kpi.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Messages */}
-      {errorMsg && (
-        <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-950/20 text-rose-300 text-sm font-medium break-all">
-          {errorMsg}
-        </div>
-      )}
-      {successMsg && (
-        <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-950/20 text-emerald-300 text-sm font-medium break-all">
-          {successMsg}
-        </div>
-      )}
+      {/* FILTERS: Cascading Hierarchy Filters */}
+      <div className="p-4 rounded-xl border border-slate-900 bg-slate-950/30 text-xs">
+        <CascadingLocationFilter
+          layout="horizontal"
+          onLocationChange={(loc) => {
+            setSelectedState(loc.stateId || '');
+            setSelectedDistrict(loc.districtId || '');
+            setSelectedCity(loc.cityId || '');
+            setSelectedWard(loc.wardId || '');
+            setSelectedArea(loc.areaId || '');
+            setSelectedZone(loc.zoneId || '');
+          }}
+        />
+      </div>
 
-      {/* Layout: Register + Tabs Grid */}
+      {/* MIDDLE CONTAINER: Three-Panel Control Room Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
 
-        {/* Register Panel */}
-        <div className="p-6 rounded-2xl border border-slate-900 bg-slate-950/40 h-fit space-y-4">
-          <h3 className="text-base font-bold text-slate-200 border-b border-slate-900 pb-3">Register New Bin</h3>
-          <form onSubmit={handleRegisterBin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">Collection Point</label>
-              {collectionPoints.length === 0 ? (
-                <div className="text-xs text-rose-400">No verified properties with collection points found.</div>
+        {/* LEFT PANEL: Alerts, Dispatches, and recommendations */}
+        <div className="lg:col-span-1 space-y-6 text-xs">
+          
+          {/* Critical Alerts */}
+          <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40 space-y-4">
+            <h3 className="text-xs font-bold text-slate-350 uppercase tracking-wider flex items-center gap-1.5">
+              🔔 Smart alerts
+            </h3>
+            <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+              {areaNotifications.length === 0 ? (
+                <p className="text-slate-550 text-center py-4">All areas reporting green.</p>
               ) : (
-                <select
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 text-sm focus:border-emerald-500 focus:outline-none"
-                  value={selectedCpId}
-                  onChange={(e) => setSelectedCpId(e.target.value)}
-                >
-                  {collectionPoints.map((cp) => (
-                    <option key={cp.id} value={cp.id}>{cp.property?.address} ({cp.area?.name})</option>
-                  ))}
-                </select>
+                areaNotifications.map((alert, idx) => (
+                  <div key={idx} className="p-3 rounded-lg bg-slate-950 border border-slate-900 text-slate-400">
+                    <span className="font-bold text-slate-300 block">{alert.title}</span>
+                    <p className="mt-0.5">{alert.message}</p>
+                    <span className="text-[9px] text-indigo-400 font-bold block mt-1">🔧 Dispatch Recommendation</span>
+                  </div>
+                ))
               )}
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">Waste Type</label>
-              <select
-                className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 text-sm focus:border-emerald-500 focus:outline-none"
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-              >
-                <option value="DRY">DRY – Recyclable</option>
-                <option value="WET">WET – Organic</option>
-                <option value="E_WASTE">E-WASTE – Hazardous</option>
-                <option value="OTHER">OTHER – General</option>
-              </select>
-            </div>
-            <button
-              type="submit"
-              disabled={isSubmitting || collectionPoints.length === 0}
-              className="w-full py-2.5 rounded-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 hover:brightness-110 disabled:opacity-50 text-sm transition-all flex items-center justify-center"
-            >
-              {isSubmitting ? <span className="h-4 w-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" /> : 'Register Bin'}
-            </button>
-          </form>
-        </div>
-
-        {/* Right Panel */}
-        <div className="lg:col-span-3 space-y-4">
-
-          {/* Tabs */}
-          <div className="flex items-center gap-1 bg-slate-950/50 border border-slate-900 rounded-xl p-1 w-fit">
-            {(['grid', 'iot'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  activeTab === tab
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {tab === 'grid' ? '📊 Bins Grid' : '📡 IoT Devices'}
-              </button>
-            ))}
           </div>
 
-          {/* Bins Grid Tab */}
-          {activeTab === 'grid' && (
-            <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40">
-              {/* Filter Bar */}
-              <div className="flex items-center gap-2 mb-4 flex-wrap">
-                {['ALL', 'ALERT', 'OFFLINE', 'CRITICAL'].map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setFilterStatus(f)}
-                    className={`px-3 py-1 rounded-lg text-[11px] font-bold border transition-all ${
-                      filterStatus === f
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                        : 'text-slate-500 border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    {f === 'ALL' ? `All (${bins.length})` :
-                     f === 'ALERT' ? `⚠ Alerts (${stats.alerts})` :
-                     f === 'OFFLINE' ? `📡 Offline/Stale (${stats.offline})` :
-                     `🟠 Fill ≥ 80% (${stats.criticalFill})`}
+          {/* AI Advisor feed */}
+          <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40 space-y-4">
+            <h3 className="text-xs font-bold text-slate-350 uppercase tracking-wider flex items-center gap-1.5">
+              🤖 AI operations recommendations
+            </h3>
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+              {aiRecommendations.length === 0 ? (
+                <p className="text-slate-550 text-center py-4">No critical AI recommendations.</p>
+              ) : (
+                aiRecommendations.map((rec) => (
+                  <div key={rec.id} className="p-4 rounded-xl border border-indigo-900 bg-indigo-950/10 space-y-3 text-slate-300">
+                    <div className="flex justify-between items-center font-bold">
+                      <span className="text-indigo-400">{rec.affectedArea}</span>
+                      <span className="text-[9px] px-1.5 py-0.5 bg-indigo-600/10 border border-indigo-500/20 text-indigo-300 uppercase font-black">{rec.priority}</span>
+                    </div>
+                    <p className="text-slate-200">{rec.recommendation}</p>
+                    <div className="text-[10px] text-slate-500 space-y-1">
+                      <div>Confidence: {rec.confidence}% · Impact: {rec.expectedImpact}</div>
+                      <div>Resolution: {rec.estimatedResolution} · Citizens: {rec.affectedCitizens}</div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => handleCommandAction('approve-dispatch', { id: rec.id })}
+                        className="flex-1 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded text-[10px] transition">
+                        Approve Action
+                      </button>
+                      <button onClick={() => setAiRecommendations(prev => prev.filter(r => r.id !== rec.id))}
+                        className="py-1 px-2.5 border border-slate-800 hover:text-white rounded text-[10px] transition">
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* CENTER PANEL: Interactive SVG GIS Control Board */}
+        <div className="lg:col-span-2 p-5 rounded-2xl border border-slate-900 bg-slate-950/40 space-y-4">
+          <div className="flex justify-between items-center flex-wrap gap-2">
+            <h3 className="text-xs font-bold text-slate-350 uppercase tracking-wider">
+              🗺️ GIS Command Heatmap Layer
+            </h3>
+            <div className="flex gap-1 bg-slate-950 border border-slate-900 rounded p-0.5 text-[9px] font-bold">
+              {[
+                { key: 'overflow', label: 'Overflow' },
+                { key: 'complaints', label: 'Complaints' },
+                { key: 'offline', label: 'Offline' }
+              ].map(layer => (
+                <button key={layer.key} onClick={() => setActiveMapLayer(layer.key as any)}
+                  className={`px-2 py-1 rounded transition ${activeMapLayer === layer.key ? 'bg-indigo-650 text-white' : 'text-slate-450 hover:text-slate-200'}`}>
+                  {layer.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom SVG Interactive Municipal Map Dashboard */}
+          <div className="h-96 w-full rounded-2xl border border-slate-900 bg-slate-950 flex items-center justify-center relative overflow-hidden">
+            <UrbanLoopMap 
+              center={[30.900965, 75.857277]} 
+              zoom={12} 
+              markers={[
+                { id: 'cp1', position: [30.910000, 75.860000], popupContent: 'CP1 (Critical)' },
+                { id: 'cp2', position: [30.890000, 75.850000], popupContent: 'CP2 (Normal)' }
+              ]}
+              clusters={true}
+              heatmap={activeMapLayer === 'overflow' ? [[30.910000, 75.860000, 1], [30.915000, 75.865000, 0.8]] : undefined}
+            />
+
+            <div className="absolute bottom-4 left-4 bg-slate-950/80 border border-slate-900 p-2.5 rounded-lg text-[9px] text-slate-500 space-y-1">
+              <div className="font-bold text-slate-350 uppercase">Active GIS Map View</div>
+              <div>Filter Scope: {selectedWard ? 'Ward View' : selectedCity ? 'City View' : 'Regional Overview'}</div>
+              <div>Heatmap Overlay: <span className="uppercase text-slate-200">{activeMapLayer}</span></div>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT PANEL: Live Timeline feed, Fleet logs, Queue */}
+        <div className="lg:col-span-1 space-y-6 text-xs">
+          
+          {/* Dispatch Urgency Queue */}
+          <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40 space-y-4">
+            <h3 className="text-xs font-bold text-slate-350 uppercase tracking-wider">
+              🚨 Priority dispatch queue
+            </h3>
+            <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
+              {operationalQueue.slice(0, 4).map(item => (
+                <div key={item.areaId} className="p-3 rounded-lg bg-slate-950 border border-slate-900 flex justify-between items-center">
+                  <div>
+                    <span className="font-bold text-slate-200 block">{item.areaName}</span>
+                    <span className="text-[9px] text-slate-500">Score: {item.score} · Overflow: {item.overflow}</span>
+                  </div>
+                  <button onClick={() => handleCommandAction('dispatch-compactor', { areaId: item.areaId })}
+                    className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded transition text-[9px]">
+                    Dispatch
                   </button>
-                ))}
-              </div>
-
-              {isLoading ? (
-                <div className="h-40 flex items-center justify-center">
-                  <span className="h-6 w-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                 </div>
-              ) : filteredBins.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 text-sm">No bins match the selected filter.</div>
+              ))}
+            </div>
+          </div>
+
+          {/* Live Activity Feed */}
+          <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40 space-y-4">
+            <h3 className="text-xs font-bold text-slate-350 uppercase tracking-wider flex items-center gap-1">
+              ⏱️ Real-time operations feed
+            </h3>
+            <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1 border-l border-slate-850 pl-3">
+              {liveActivities.length === 0 ? (
+                <p className="text-slate-550 text-center py-4">Waiting for operations...</p>
               ) : (
-                <div className="grid grid-cols-1 gap-3">
-                  {filteredBins.map((bin) => {
-                    const activeAlerts = bin.alerts?.filter((a) => a.status === 'ACTIVE') || [];
-                    return (
-                      <div
-                        key={bin.id}
-                        className={`p-4 rounded-xl border flex gap-4 items-start transition-all ${
-                          activeAlerts.length > 0
-                            ? 'border-rose-500/25 bg-rose-950/10'
-                            : bin.telemetryStatus === 'ONLINE'
-                            ? 'border-emerald-500/15 bg-emerald-950/5'
-                            : 'border-slate-900/60 bg-slate-950/20'
-                        }`}
-                      >
-                        {/* Fill Bar + Info */}
-                        <div className="flex-1 min-w-0 space-y-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono font-bold text-emerald-400 text-sm">{bin.qrCodeId}</span>
-                            <TelemetryBadge status={bin.telemetryStatus} />
-                            {activeAlerts.map((a) => (
-                              <span key={a.id} className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                                a.severity === 'CRITICAL' ? 'border-rose-500/40 text-rose-300 bg-rose-950/30' : 'border-amber-500/40 text-amber-300 bg-amber-950/30'
-                              }`}>
-                                {a.type.replace(/_/g, ' ')}
-                              </span>
-                            ))}
-                          </div>
-                          <FillBar level={bin.currentFillLevel} type={bin.type} />
-                          <div className="flex items-center gap-3 text-[10px] text-slate-500">
-                            <span>{bin.collectionPoint?.area?.name}</span>
-                            <span>·</span>
-                            <span>Signal: {timeAgo(bin.lastTelemetryAt)}</span>
-                            {bin.device && <span>· <DeviceStatusBadge status={bin.device.status} /></span>}
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex flex-col gap-1.5">
-                          {!bin.device && (
-                            <button
-                              onClick={() => setProvisionTarget(bin)}
-                              className="px-2.5 py-1.5 text-[10px] font-bold rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition whitespace-nowrap"
-                            >
-                              + Device
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDeleteBin(bin.id)}
-                            className="px-2.5 py-1.5 text-[10px] font-bold rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                liveActivities.map((act, idx) => (
+                  <div key={idx} className="relative space-y-0.5">
+                    <span className="absolute -left-[17px] top-1.5 h-2 w-2 rounded-full bg-indigo-500 border border-slate-950" />
+                    <span className="text-[9px] text-slate-550 block">{act.timeStr}</span>
+                    <p className="text-slate-350 leading-relaxed text-[10px]">{act.message}</p>
+                  </div>
+                ))
               )}
             </div>
-          )}
-
-          {/* IoT Devices Tab */}
-          {activeTab === 'iot' && (
-            <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40">
-              <div className="text-xs text-slate-500 mb-4 font-semibold">
-                {binsWithDevice.length} of {bins.length} bins have a provisioned device
-              </div>
-
-              {binsWithDevice.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 text-sm space-y-2">
-                  <div className="text-2xl">📡</div>
-                  <div>No IoT devices provisioned yet.</div>
-                  <div className="text-xs">Use the Bins Grid to provision devices for individual bins.</div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {binsWithDevice.map((bin) => {
-                    const dev = bin.device!;
-                    const isLoading = deviceActionLoading?.startsWith(dev.id);
-                    return (
-                      <div key={dev.id} className="p-4 rounded-xl border border-slate-900 bg-slate-950/40 flex flex-col sm:flex-row sm:items-center gap-4">
-                        <div className="flex-1 min-w-0 space-y-1.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-sm font-bold text-slate-200">{dev.deviceIdentifier}</span>
-                            <DeviceStatusBadge status={dev.status} />
-                          </div>
-                          <div className="text-[11px] text-slate-400 space-y-0.5">
-                            <div>Bin: <span className="text-emerald-400 font-mono">{bin.qrCodeId}</span> · {bin.collectionPoint?.area?.name}</div>
-                            <div>Last Seen: <span className="text-slate-300">{timeAgo(dev.lastSeenAt)}</span></div>
-                            <div>Device ID: <span className="text-slate-500 font-mono text-[10px]">{dev.id}</span></div>
-                          </div>
-                        </div>
-
-                        {/* Device Actions */}
-                        <div className="flex gap-2 flex-wrap">
-                          {dev.status === 'ACTIVE' && (
-                            <button
-                              onClick={() => handleDeviceAction('disable', dev.id)}
-                              disabled={!!isLoading}
-                              className="px-3 py-1.5 text-[11px] font-bold rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 transition disabled:opacity-50"
-                            >
-                              Disable
-                            </button>
-                          )}
-                          {dev.status === 'DISABLED' && (
-                            <button
-                              onClick={() => handleDeviceAction('enable', dev.id)}
-                              disabled={!!isLoading}
-                              className="px-3 py-1.5 text-[11px] font-bold rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition disabled:opacity-50"
-                            >
-                              Enable
-                            </button>
-                          )}
-                          {dev.status !== 'REVOKED' && (
-                            <>
-                              <button
-                                onClick={() => handleDeviceAction('rotate', dev.id)}
-                                disabled={!!isLoading}
-                                className="px-3 py-1.5 text-[11px] font-bold rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 transition disabled:opacity-50"
-                              >
-                                Rotate Key
-                              </button>
-                              <button
-                                onClick={() => { if (confirm('Permanently revoke this device? This is irreversible.')) handleDeviceAction('revoke', dev.id); }}
-                                disabled={!!isLoading}
-                                className="px-3 py-1.5 text-[11px] font-bold rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition disabled:opacity-50"
-                              >
-                                Revoke
-                              </button>
-                            </>
-                          )}
-                          {dev.status === 'REVOKED' && (
-                            <span className="px-3 py-1.5 text-[11px] font-bold rounded-lg text-slate-600 border border-slate-800">
-                              Permanently Revoked
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* Provision Modal */}
-      {provisionTarget && (
-        <ProvisionModal
-          bin={provisionTarget}
-          onClose={() => setProvisionTarget(null)}
-          onProvisioned={fetchData}
-        />
+      {/* BOTTOM SECTION: Area summaries dashboard grid */}
+      <div className="space-y-6">
+        <h2 className="text-sm font-black text-slate-350 uppercase tracking-wider border-b border-slate-900 pb-3">Ward Summary Overview Cards</h2>
+        {isLoading ? (
+          <div className="h-40 flex items-center justify-center">
+            <span className="h-6 w-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+            {areaSummaries.map((area) => {
+              const borderStyles = {
+                Red: 'border-red-500/30 bg-red-950/5 hover:border-red-500/50',
+                Orange: 'border-orange-500/30 bg-orange-950/5 hover:border-orange-500/50',
+                Yellow: 'border-yellow-500/30 bg-yellow-950/5 hover:border-yellow-500/50',
+                Green: 'border-emerald-500/30 bg-emerald-950/5 hover:border-emerald-500/50',
+              };
+              const badgeStyles = {
+                Red: 'bg-red-500/10 text-red-400 border-red-500/20',
+                Orange: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+                Yellow: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+                Green: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+              };
+
+              return (
+                <div key={area.id} onClick={() => handleOpenDrilldown(area.id)}
+                  className={`p-5 rounded-2xl border transition cursor-pointer space-y-4 hover:shadow-lg hover:shadow-slate-950/50 ${borderStyles[area.status]}`}>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-200">{area.name}</h3>
+                      <span className="text-[9px] text-slate-500 uppercase font-semibold">Ward {area.wardNumber}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase border ${badgeStyles[area.status]}`}>
+                      {area.statusText}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs text-slate-400">
+                    <div className="flex justify-between border-b border-slate-900/50 pb-1">
+                      <span>Smart Bins</span>
+                      <span className="font-semibold text-slate-200">{area.totalBins}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-900/50 pb-1">
+                      <span>Overflow Bins</span>
+                      <span className={`font-semibold ${area.overflowBins > 0 ? 'text-rose-400' : 'text-slate-200'}`}>{area.overflowBins}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-900/50 pb-1">
+                      <span>Efficiency Index</span>
+                      <span className="font-semibold text-emerald-400">{area.collectionEfficiency}%</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-900/50 pb-1">
+                      <span>Health Index</span>
+                      <span className="font-semibold text-slate-200">{area.healthScore}/100</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-between items-center text-[9px] text-slate-550 border-t border-slate-900">
+                    <span>Teams: {area.activeTeamsCount}</span>
+                    <span>Volume: {area.estWasteVolume} L</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Resource Allocation Dashboard Panel */}
+      <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40 space-y-4 text-xs">
+        <h3 className="text-xs font-bold text-slate-350 uppercase tracking-wider">
+          ⚖️ Resource Allocation Balance Sheet
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {resourceAllocations.map(res => (
+            <div key={res.areaId} className="p-4 rounded-xl border border-slate-900 bg-slate-950/80 space-y-2">
+              <span className="font-bold text-slate-250 block">{res.areaName}</span>
+              <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
+                <div className="p-2 rounded bg-slate-900/50 text-center">
+                  <span className="text-slate-500 block uppercase font-semibold">Available</span>
+                  <span className="font-bold text-slate-200">{res.available.vehicles} Vehicles / {res.available.workers} Workers</span>
+                </div>
+                <div className="p-2 rounded bg-slate-900/50 text-center">
+                  <span className="text-slate-500 block uppercase font-semibold">Required</span>
+                  <span className="font-bold text-rose-450">{res.required.vehicles} Vehicles / {res.required.workers} Workers</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Drill-Down Operational View Modal */}
+      {drilldownData && (
+        <div className="fixed inset-0 z-45 flex justify-end bg-black/85 backdrop-blur-sm" onClick={() => setDrilldownData(null)}>
+          <div className="w-full max-w-5xl h-full bg-slate-950 border-l border-slate-850 p-6 overflow-y-auto space-y-8 relative shadow-2xl" onClick={e => e.stopPropagation()}>
+            
+            <button onClick={() => setDrilldownData(null)}
+              className="absolute top-6 right-6 h-8 w-8 rounded-lg border border-slate-800 hover:border-slate-700 bg-slate-900 flex items-center justify-center text-slate-400 text-sm font-bold transition">
+              ✕
+            </button>
+
+            <div>
+              <div className="text-[10px] text-slate-500 uppercase font-black tracking-wider">
+                {drilldownData.stateName} · {drilldownData.cityName} · Ward {drilldownData.wardNumber}
+              </div>
+              <h2 className="text-xl font-black text-slate-100 mt-1">Area: {drilldownData.areaName} Operations Center</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Showing live diagnostics, telemetry list, and analytics overrides for this ward segment.</p>
+            </div>
+
+            {/* Smart Analytics row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center text-xs">
+              {[
+                { label: 'Total Waste Weight', value: `${drilldownData.analytics.totalWaste.toFixed(0)} kg`, color: 'text-indigo-400' },
+                { label: 'Average Fill Level', value: `${drilldownData.analytics.avgFill.toFixed(0)}%`, color: 'text-emerald-400' },
+                { label: 'Overflow Rate', value: `${drilldownData.analytics.overflowPct.toFixed(1)}%`, color: drilldownData.analytics.overflowPct > 5 ? 'text-rose-400' : 'text-slate-350' },
+                { label: 'Active Complaints', value: drilldownData.analytics.complaintCount, color: 'text-amber-400' },
+              ].map(stat => (
+                <div key={stat.label} className="p-4 rounded-xl border border-slate-900 bg-slate-950/80">
+                  <div className={`text-2xl font-black ${stat.color}`}>{stat.value}</div>
+                  <div className="text-[10px] text-slate-500 uppercase font-semibold mt-1">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* SVG Dynamic Analytics Charts */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+              <div className="p-5 rounded-2xl border border-slate-900 bg-slate-900/10 space-y-4">
+                <h3 className="text-xs font-bold text-slate-350">Waste Category Distribution</h3>
+                <div className="flex items-center gap-6">
+                  <svg className="w-24 h-24 transform -rotate-90">
+                    <circle cx="48" cy="48" r="36" fill="transparent" stroke="#0e1329" strokeWidth="18" />
+                    <circle cx="48" cy="48" r="36" fill="transparent" stroke="#10b981" strokeWidth="18" strokeDasharray="226" strokeDashoffset={226 - (226 * (drilldownData.wasteTypeCounts.DRY || 0)) / (drilldownData.totalBins || 1)} />
+                  </svg>
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="flex items-center gap-1.5 text-emerald-400"><span className="h-2 w-2 rounded-full bg-emerald-500" /> DRY (Recyclables)</span>
+                      <span className="font-semibold">{drilldownData.wasteTypeCounts.DRY || 0} bins</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="flex items-center gap-1.5 text-indigo-400"><span className="h-2 w-2 rounded-full bg-indigo-500" /> WET (Organic)</span>
+                      <span className="font-semibold">{drilldownData.wasteTypeCounts.WET || 0} bins</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="flex items-center gap-1.5 text-amber-400"><span className="h-2 w-2 rounded-full bg-amber-500" /> E-WASTE (Hazardous)</span>
+                      <span className="font-semibold">{drilldownData.wasteTypeCounts.E_WASTE || 0} bins</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 rounded-2xl border border-slate-900 bg-slate-900/10 space-y-3">
+                <h3 className="text-xs font-bold text-slate-350">Operational KPIs</h3>
+                <div className="space-y-2 text-[11px] text-slate-400">
+                  <div className="flex justify-between items-center">
+                    <span>IoT Telemetry Uptime</span>
+                    <span className="font-bold text-emerald-400">{drilldownData.analytics.deviceUptime}%</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Avg Collection Stop Time</span>
+                    <span className="font-bold text-slate-200">{drilldownData.analytics.avgCollectionTime} mins</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Worker Productivity Rate</span>
+                    <span className="font-bold text-slate-200">{drilldownData.analytics.workerProductivity}%</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Collection Vehicle Utilization</span>
+                    <span className="font-bold text-slate-200">{drilldownData.analytics.vehicleUtilization}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Individual Bins Explorer under Area */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-black text-slate-350">Individual Bins inside {drilldownData.areaName}</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                {drilldownData.individualBins.map(bin => (
+                  <div key={bin.id} onClick={() => handleOpenBinDetails(bin.id)}
+                    className="p-4 rounded-xl border border-slate-900 bg-slate-950 hover:border-slate-800 transition cursor-pointer flex justify-between items-center">
+                    <div className="space-y-1">
+                      <span className="font-mono font-bold text-slate-200 text-xs block">{bin.qrCodeId}</span>
+                      <span className="text-[10px] text-slate-500">Type: {bin.type} · Temp: {bin.temperature}°C</span>
+                    </div>
+                    <div className="text-right space-y-1">
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                        bin.currentFillLevel >= 90 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/25' :
+                        bin.currentFillLevel >= 70 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/25' :
+                        'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25'
+                      }`}>{bin.currentFillLevel}% Fill</span>
+                      <span className="block text-[10px] text-slate-500">Bat: {bin.batteryLevel}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Individual Bin Profile details */}
+            {selectedBinDetails && (
+              <div className="p-6 rounded-2xl border border-slate-800 bg-slate-950 space-y-4 text-xs animate-fade-in">
+                <div className="flex justify-between items-start border-b border-slate-900 pb-3">
+                  <div>
+                    <span className="font-mono text-sm font-bold text-emerald-400">{selectedBinDetails.qrCodeId}</span>
+                    <p className="text-[10px] text-slate-500">QR Registry Profile</p>
+                  </div>
+                  <button onClick={() => setSelectedBinDetails(null)} className="text-slate-550 hover:text-slate-300">✕ Dismiss</button>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-[11px] text-slate-400">
+                  <div>
+                    <span className="block text-slate-500">Assigned Street</span>
+                    <span className="font-semibold text-slate-200">{selectedBinDetails.collectionPoint?.name || 'Main Street'}</span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-500">Property Address</span>
+                    <span className="font-semibold text-slate-200">{selectedBinDetails.collectionPoint?.property?.address || 'Municipal Lot'}</span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-500">Battery Level</span>
+                    <span className="font-semibold text-slate-200">85%</span>
+                  </div>
+                  <div>
+                    <span className="block text-slate-500">Signal Strength</span>
+                    <span className="font-semibold text-slate-200">-65 dBm</span>
+                  </div>
+                </div>
+
+                {/* Telemetries History list */}
+                <div className="space-y-2">
+                  <h4 className="font-bold text-slate-350 text-xs">Recent Telemetry Events</h4>
+                  <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-1">
+                    {selectedBinDetails.telemetries?.length === 0 ? (
+                      <p className="text-slate-550">No telemetry frames recorded.</p>
+                    ) : (
+                      selectedBinDetails.telemetries?.map((t: any, idx: number) => (
+                        <div key={idx} className="p-2 rounded bg-slate-900/50 flex justify-between text-[10px] text-slate-400 border border-slate-900">
+                          <span>{new Date(t.recordedAt).toLocaleString()}</span>
+                          <span>Fill: {t.fillLevel}% · Temp: {t.temperature}°C</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
