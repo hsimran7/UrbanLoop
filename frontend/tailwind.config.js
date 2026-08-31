@@ -5,30 +5,45 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
-        heading: ['Outfit', 'sans-serif'],
+        heading: ['Manrope', 'Inter', 'sans-serif'],
       },
       colors: {
-        nature: {
-          lightBg: '#EDECEC',
-          neutral: '#CCCCCC',
-          white: '#FEFEFE',
-          accent: '#B7C396',
-          softGreen: '#E0E7D7',
-          earth: '#BA9A91',
+        forest: {
+          deep: '#1F4D3A',
+          DEFAULT: '#2F6B4F',
+          gov: '#3E7C59',
+          hover: '#255A41',
         },
-        surface: {
-          glass: 'rgba(254, 254, 254, 0.75)',
-          darkGlass: 'rgba(20, 25, 20, 0.4)',
-          border: 'rgba(183, 195, 150, 0.3)', // nature.accent at 30%
+        sage: {
+          DEFAULT: '#7FA68A',
+          light: '#EAF3EC',
+          dark: '#39483F',
+        },
+        gov: {
+          green: '#3E7C59',
+          lightGreen: '#EAF3EC',
+          cream: '#F7F5EF',
+          white: '#FFFFFF',
+          text: '#243229',
+          heading: '#20352A',
+          subtext: '#59665D',
+          border: '#D8E2DA',
+          beige: '#EEEAE0',
+        },
+        status: {
+          success: '#3E7C59',
+          successBg: '#EAF4EC',
+          warning: '#B98232',
+          warningBg: '#FFF5E2',
+          danger: '#B94A48',
+          dangerBg: '#FCECEC',
+          info: '#46758A',
         }
       },
       boxShadow: {
-        'glass-soft': '0 8px 32px 0 rgba(186, 154, 145, 0.1)',
-        'glass-hover': '0 12px 40px 0 rgba(183, 195, 150, 0.2)',
+        'gov-soft': '0 8px 30px rgba(45, 70, 55, 0.08)',
+        'gov-hover': '0 12px 36px rgba(45, 70, 55, 0.12)',
       },
-      backgroundImage: {
-        'grid-pattern': 'radial-gradient(circle, rgba(183, 195, 150, 0.1) 1px, transparent 1px)',
-      }
     },
   },
   plugins: [],

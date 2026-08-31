@@ -1,0 +1,3 @@
+mongodb+srv://<username>:<password>@cluster.mongodb.net/urbanloop==>mongodb+srv://<username>:<password>@cluster.mongodb.net/urbanloop
+mongodb+srv://<username>:<password>@cluster.mongodb.net/urbanloop==>mongodb+srv://<username>:<password>@cluster.mongodb.net/urbanloop
+your_jwt_secret_here==>your_jwt_secret_here

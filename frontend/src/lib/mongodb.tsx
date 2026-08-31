@@ -1,19 +1,21 @@
 // MongoDB connection setup
 import { MongoClient } from "mongodb";
 
-const uri = "mongodb+srv://<username>:<password>@cluster.mongodb.net/urbanloop";
+const uri = process.env.MONGODB_URI || "";
 let client;
-let clientPromise;
+let clientPromise: Promise<MongoClient> | undefined;
 
 declare global {
 	// eslint-disable-next-line no-var
 	var _mongoClientPromise: Promise<MongoClient> | undefined;
 }
 
-if (!globalThis._mongoClientPromise) {
-	client = new MongoClient(uri);
-	globalThis._mongoClientPromise = client.connect();
+if (uri) {
+	if (!globalThis._mongoClientPromise) {
+		client = new MongoClient(uri);
+		globalThis._mongoClientPromise = client.connect();
+	}
+	clientPromise = globalThis._mongoClientPromise;
 }
-clientPromise = globalThis._mongoClientPromise;
 
 export default clientPromise;

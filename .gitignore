@@ -13,11 +13,20 @@ obj/
 
 # Environment files
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.sync
+.env.*
+!.env.example
+
+# Secrets & Credentials
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+
+# Local Configuration
+.npmrc
+.netrc
 
 # IDE / Editor files
 .vscode/

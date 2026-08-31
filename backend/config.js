@@ -1,13 +1,13 @@
 // Database configuration
 const config = {
-  // MongoDB Atlas connection string (replace with your actual connection string)
+  // MongoDB Atlas connection string
   mongodb: {
-    uri: process.env.MONGODB_URI || 'mongodb+srv://<username>:<password>@cluster.mongodb.net/urbanloop'
+    uri: process.env.MONGODB_URI || ''
   },
 
   // JWT configuration
   jwt: {
-    secret: process.env.JWT_SECRET || 'your_jwt_secret_here'
+    secret: process.env.JWT_SECRET || process.env.JWT_ACCESS_SECRET || ''
   },
 
   // Server configuration

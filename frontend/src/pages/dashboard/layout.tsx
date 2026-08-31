@@ -52,37 +52,37 @@ export default function DashboardLayout() {
   const isWorker = ['WORKER', 'DRIVER'].includes(user.role);
 
   const roleColors: Record<string, string> = {
-    CITIZEN: 'bg-nature-softGreen text-slate-800 border-nature-accent/40',
-    WORKER: 'bg-nature-accent text-slate-900 border-nature-accent',
-    DRIVER: 'bg-nature-accent text-slate-900 border-nature-accent',
-    GOVERNMENT_OFFICIAL: 'bg-slate-200 text-slate-800 border-slate-300',
-    SUPERVISOR: 'bg-nature-earth/20 text-slate-800 border-nature-earth/40',
-    FACILITY_MANAGER: 'bg-nature-earth/20 text-slate-800 border-nature-earth/40',
-    SYSTEM_ADMIN: 'bg-slate-800 text-white border-slate-900',
+    CITIZEN: 'bg-[#EAF3EC] text-[#2F6B4F] border-[#7FA68A]/40',
+    WORKER: 'bg-[#EAF3EC] text-[#2F6B4F] border-[#7FA68A]/40',
+    DRIVER: 'bg-[#EAF3EC] text-[#2F6B4F] border-[#7FA68A]/40',
+    GOVERNMENT_OFFICIAL: 'bg-[#FFF5E2] text-[#B98232] border-[#B98232]/40',
+    SUPERVISOR: 'bg-[#EAF3EC] text-[#2F6B4F] border-[#7FA68A]/40',
+    FACILITY_MANAGER: 'bg-[#EAF3EC] text-[#2F6B4F] border-[#7FA68A]/40',
+    SYSTEM_ADMIN: 'bg-[#20352A] text-white border-[#20352A]',
   };
 
-  const activeLinkClass = 'bg-nature-accent/20 border-l-4 border-nature-accent text-slate-900 font-semibold rounded-r-2xl';
-  const inactiveLinkClass = 'border-l-4 border-transparent text-slate-600 hover:bg-nature-lightBg/50 hover:text-slate-900 transition rounded-r-2xl';
+  const activeLinkClass = 'bg-[#E4F0E7] border-l-4 border-[#2F6B4F] text-[#2F6B4F] font-bold rounded-r-2xl';
+  const inactiveLinkClass = 'border-l-4 border-transparent text-[#34483C] hover:bg-white/70 hover:text-[#2F6B4F] transition font-medium rounded-r-2xl';
 
   return (
-    <div className="min-h-screen bg-transparent text-slate-800 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-transparent text-[#243229] flex flex-col md:flex-row">
       {/* Sidebar */}
-      <aside className="w-full md:w-64 glass-card m-0 md:m-4 md:mr-0 flex flex-col justify-between shrink-0 overflow-hidden border-none shadow-glass-soft">
+      <aside className="w-full md:w-64 glass-card m-0 md:m-4 md:mr-0 flex flex-col justify-between shrink-0 overflow-hidden border border-[#D8E2DA] shadow-gov-soft">
         <div>
           {/* Logo */}
-          <div className="p-6 border-b border-surface-border flex items-center space-x-3">
-            <div className="h-8 w-8 rounded-xl bg-nature-accent flex items-center justify-center font-bold text-slate-900 text-base shadow-sm">
+          <div className="p-6 border-b border-[#D8E2DA]/80 flex items-center space-x-3">
+            <div className="h-9 w-9 rounded-xl bg-[#2F6B4F] flex items-center justify-center font-extrabold text-white text-base shadow-sm">
               UL
             </div>
-            <span className="font-extrabold text-lg text-slate-900 tracking-tight">
+            <span className="font-extrabold text-lg text-[#20352A] tracking-tight font-heading">
               UrbanLoop
             </span>
           </div>
 
           {/* User profile */}
-          <div className="p-6 border-b border-surface-border">
-            <div className="text-sm font-semibold text-slate-800 truncate">{user.email}</div>
-            <div className={`mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border uppercase tracking-wider leading-normal select-none shadow-sm ${roleColors[user.role] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+          <div className="p-6 border-b border-[#D8E2DA]/80">
+            <div className="text-xs font-semibold text-[#20352A] truncate">{user.email}</div>
+            <div className={`mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider leading-normal select-none shadow-sm ${roleColors[user.role] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
               {user.role.replace('_', ' ')}
             </div>
           </div>
@@ -184,10 +184,10 @@ export default function DashboardLayout() {
         </div>
 
         {/* Logout button */}
-        <div className="p-6 border-t border-surface-border">
+        <div className="p-6 border-t border-[#D8E2DA]/80">
           <button
             onClick={logout}
-            className="w-full py-2.5 rounded-[16px] text-sm font-medium border border-nature-neutral/40 hover:bg-red-50 hover:border-red-200 hover:text-red-700 active:scale-95 transition-all flex items-center justify-center space-x-2"
+            className="w-full py-2.5 rounded-xl text-xs font-semibold border border-[#D8E2DA] text-[#34483C] bg-white hover:bg-red-50 hover:border-red-200 hover:text-red-700 active:scale-95 transition-all flex items-center justify-center space-x-2 shadow-sm"
           >
             <span>Sign Out</span>
           </button>

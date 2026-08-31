@@ -47,9 +47,6 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onSwitchToLogin }) => {
 
     setIsLoading(true);
     try {
-      console.log('Starting signup process...');
-      console.log('Form data:', formData);
-
       const { error: signUpError } = await signUp(
         formData.email,
         formData.password,
@@ -61,230 +58,228 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onSwitchToLogin }) => {
         }
       );
 
-      console.log('Signup response:', signUpError);
-
       if (signUpError) {
-        setError(signUpError);
-      } else {
-        console.log('Signup successful!');
+        setError(signUpError.message || 'Failed to create account');
       }
     } catch (err) {
-      console.error('Signup error:', err);
-      setError('An unexpected error occurred');
+      setError('An unexpected error occurred during signup');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const roles = [
-    { value: 'citizen', label: 'Citizen' },
-    { value: 'staff', label: 'Staff' },
-    { value: 'manager', label: 'Manager' },
-    { value: 'admin', label: 'Admin' }
-  ];
-
   return (
-    <div className="min-h-screen  flex items-center justify-center p-4">
-      <div className="max-w-md w-full space-y-8">
-        <div className="glass-panel p-8">
+    <div 
+      className="min-h-screen w-full flex flex-col justify-between items-center p-4 md:p-8 relative overflow-hidden bg-cover bg-center bg-no-repeat bg-fixed font-sans"
+      style={{
+        backgroundImage: `linear-gradient(rgba(239, 246, 255, 0.35), rgba(248, 250, 252, 0.55)), url('/images/auth-nature.jpg'), url('/assets/nature-register.jpg')`
+      }}
+    >
+      <div className="w-full flex justify-center items-center my-auto">
+        <div 
+          className="max-w-lg w-full rounded-3xl p-6 md:p-10 relative text-[#172033]"
+          style={{
+            background: 'rgba(255, 255, 255, 0.82)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(191, 219, 254, 0.8)',
+            boxShadow: '0 20px 50px rgba(30, 64, 175, 0.12)',
+          }}
+        >
           {/* Header */}
-          <div className="text-center mb-8">
-            <div className="mx-auto h-16 w-16 bg-brand-500/20 rounded-full flex items-center justify-center mb-4">
-              <UserPlus className="h-8 w-8 text-brand-500" />
+          <div className="text-center mb-6">
+            <div className="mx-auto h-13 w-13 bg-[#2563EB] rounded-2xl flex items-center justify-center mb-3 text-white text-2xl shadow-lg">
+              ⚡
             </div>
-            <h2 className="text-3xl font-bold text-white">Create Account</h2>
-            <p className="text-slate-400 mt-2">Join the Waste Management System</p>
+            <span className="text-xs font-extrabold uppercase tracking-widest text-[#2563EB] mb-1 block font-heading">
+              UrbanLoop
+            </span>
+            <h2 className="text-2xl md:text-3xl font-extrabold text-[#172554] font-heading">Create Your Account</h2>
+            <p className="text-[#526070] text-xs md:text-sm font-medium mt-1">Register for municipal services</p>
           </div>
 
           {/* Error Message */}
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2">
-              <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
-              <span className="text-red-700 text-sm">{error}</span>
+            <div className="mb-6 p-4 bg-red-50/90 border border-red-200 rounded-2xl flex items-center space-x-2 text-red-800 text-xs md:text-sm font-semibold">
+              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
           {/* Sign Up Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Account Type / Role */}
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-slate-300 mb-2">
-                Full Name
-              </label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  className="input-field pl-10 pr-4"
-                  placeholder="Enter your full name"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  className="input-field pl-10 pr-4"
-                  placeholder="Enter your email"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="role" className="block text-sm font-medium text-slate-300 mb-2">
-                Role
+              <label htmlFor="role" className="block text-xs font-extrabold text-[#172033] uppercase tracking-wider mb-1.5">
+                Account Type
               </label>
               <select
                 id="role"
                 name="role"
                 value={formData.role}
                 onChange={handleInputChange}
-                className="input-field"
-                required
+                className="w-full h-12 px-4 rounded-xl bg-white/92 border border-[#D7E0EC] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 focus:outline-none text-[#172033] text-sm font-medium transition-all"
               >
-                {roles.map(role => (
-                  <option key={role.value} value={role.value}>
-                    {role.label}
-                  </option>
-                ))}
+                <option value="citizen">Citizen Account</option>
+                <option value="worker">Municipal Worker</option>
+                <option value="driver">Driver / Operator</option>
+                <option value="supervisor">Supervisor</option>
               </select>
             </div>
 
+            {/* Name Input */}
             <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-slate-300 mb-2">
-                Phone Number (Optional)
+              <label htmlFor="name" className="block text-xs font-extrabold text-[#172033] uppercase tracking-wider mb-1.5">
+                Full Name
               </label>
               <div className="relative">
-                <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <User className="absolute left-3.5 top-1/2 transform -translate-y-1/2 h-5 w-5 text-[#526070]" />
+                <input
+                  id="name"
+                  name="name"
+                  type="text"
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  className="w-full h-12 pl-11 pr-4 rounded-xl bg-white/92 border border-[#D7E0EC] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 focus:outline-none text-[#172033] text-sm font-medium transition-all placeholder:text-[#526070]/60"
+                  placeholder="Enter full name"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Email Input */}
+            <div>
+              <label htmlFor="email" className="block text-xs font-extrabold text-[#172033] uppercase tracking-wider mb-1.5">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 transform -translate-y-1/2 h-5 w-5 text-[#526070]" />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  className="w-full h-12 pl-11 pr-4 rounded-xl bg-white/92 border border-[#D7E0EC] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 focus:outline-none text-[#172033] text-sm font-medium transition-all placeholder:text-[#526070]/60"
+                  placeholder="Enter email address"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Phone Input */}
+            <div>
+              <label htmlFor="phone" className="block text-xs font-extrabold text-[#172033] uppercase tracking-wider mb-1.5">
+                Phone Number
+              </label>
+              <div className="relative">
+                <Phone className="absolute left-3.5 top-1/2 transform -translate-y-1/2 h-5 w-5 text-[#526070]" />
                 <input
                   id="phone"
                   name="phone"
                   type="tel"
                   value={formData.phone}
                   onChange={handleInputChange}
-                  className="input-field pl-10 pr-4"
-                  placeholder="Enter your phone number"
+                  className="w-full h-12 pl-11 pr-4 rounded-xl bg-white/92 border border-[#D7E0EC] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 focus:outline-none text-[#172033] text-sm font-medium transition-all placeholder:text-[#526070]/60"
+                  placeholder="+91 99999 99999"
                 />
               </div>
             </div>
 
+            {/* Password Input */}
             <div>
-              <label htmlFor="assignedArea" className="block text-sm font-medium text-slate-300 mb-2">
-                Area/Location (Optional)
-              </label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  id="assignedArea"
-                  name="assignedArea"
-                  type="text"
-                  value={formData.assignedArea}
-                  onChange={handleInputChange}
-                  className="input-field pl-10 pr-4"
-                  placeholder="Enter your area or location"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
+              <label htmlFor="password" className="block text-xs font-extrabold text-[#172033] uppercase tracking-wider mb-1.5">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Lock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 h-5 w-5 text-[#526070]" />
                 <input
                   id="password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
                   value={formData.password}
                   onChange={handleInputChange}
-                  className="input-field pl-10 pr-12"
-                  placeholder="Enter your password"
+                  className="w-full h-12 pl-11 pr-12 rounded-xl bg-white/92 border border-[#D7E0EC] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 focus:outline-none text-[#172033] text-sm font-medium transition-all placeholder:text-[#526070]/60"
+                  placeholder="At least 6 characters"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-slate-400"
+                  className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-[#526070] hover:text-[#172033]"
                 >
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
             </div>
 
+            {/* Confirm Password */}
             <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-300 mb-2">
+              <label htmlFor="confirmPassword" className="block text-xs font-extrabold text-[#172033] uppercase tracking-wider mb-1.5">
                 Confirm Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Lock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 h-5 w-5 text-[#526070]" />
                 <input
                   id="confirmPassword"
                   name="confirmPassword"
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={formData.confirmPassword}
                   onChange={handleInputChange}
-                  className="input-field pl-10 pr-12"
-                  placeholder="Confirm your password"
+                  className="w-full h-12 pl-11 pr-12 rounded-xl bg-white/92 border border-[#D7E0EC] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 focus:outline-none text-[#172033] text-sm font-medium transition-all placeholder:text-[#526070]/60"
+                  placeholder="Re-enter password"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-slate-400"
+                  className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-[#526070] hover:text-[#172033]"
                 >
                   {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
             </div>
 
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
-              className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full h-12 bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-sm rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-50 mt-4 cursor-pointer flex items-center justify-center space-x-2"
             >
-              {isLoading ? 'Creating Account...' : 'Create Account'}
+              {isLoading ? (
+                <span className="inline-block h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              ) : (
+                <span>Create Account</span>
+              )}
             </button>
           </form>
 
           {/* Back to Login Link */}
-          <div className="mt-6 text-center">
-            <p className="text-sm text-slate-400">
-              Already have an account?{' '}
-              <button
-                type="button"
-                onClick={onSwitchToLogin}
-                className="text-brand-500 hover:text-green-700 font-medium transition-colors"
-              >
-                Sign in here
-              </button>
-            </p>
-          </div>
+          {onSwitchToLogin && (
+            <div className="mt-6 text-center text-xs md:text-sm font-medium text-[#526070]">
+              <p>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={onSwitchToLogin}
+                  className="text-[#2563EB] hover:underline font-extrabold cursor-pointer"
+                >
+                  Sign In
+                </button>
+              </p>
+            </div>
+          )}
         </div>
+      </div>
 
-        {/* Footer */}
-        <div className="text-center text-sm text-slate-400">
-          <p>Waste Management System v1.0</p>
-          <p className="mt-1">Secure • Efficient • Reliable</p>
-        </div>
+      {/* Footer */}
+      <div className="pt-6 text-center text-xs font-extrabold text-[#2563EB] tracking-widest uppercase flex items-center gap-2">
+        <span>🔹</span>
+        <span>CLEANER CITIES • BETTER LIVING</span>
+        <span>🔹</span>
       </div>
     </div>
   );
 };
 
 export default SignUpForm;
-

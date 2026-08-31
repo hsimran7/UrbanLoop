@@ -24,80 +24,112 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center px-4 relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950/10">
-      {/* Background radial glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[500px] w-[500px] bg-emerald-500/5 rounded-full blur-[100px] pointer-events-none"></div>
-
-      <div className="w-full max-w-md p-8 rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-xl relative shadow-2xl">
-        <div className="flex flex-col items-center mb-8">
-          <Link href="/" className="h-12 w-12 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center font-bold text-slate-950 text-2xl shadow-lg shadow-emerald-500/20 mb-4 hover:scale-105 transition-all">
-            UL
-          </Link>
-          <h2 className="text-2xl font-extrabold tracking-tight">Welcome to UrbanLoop</h2>
-          <p className="text-slate-400 text-sm mt-1">Sign in to your municipal dashboard</p>
-        </div>
-
-        {errorMsg && (
-          <div className="mb-6 p-4 rounded-xl border border-rose-500/30 bg-rose-950/20 text-rose-300 text-sm font-medium">
-            {errorMsg}
+    <div 
+      className="min-h-screen w-full flex flex-col justify-between items-center p-4 md:p-8 relative overflow-hidden bg-cover bg-center bg-no-repeat bg-fixed font-sans"
+      style={{
+        backgroundImage: `linear-gradient(rgba(239, 246, 255, 0.35), rgba(248, 250, 252, 0.55)), url('/images/auth-nature.jpg'), url('/assets/nature-register.jpg')`
+      }}
+    >
+      <div className="w-full flex justify-center items-center my-auto">
+        {/* Blue-themed Glass Card */}
+        <div 
+          className="w-full max-w-md rounded-3xl p-6 md:p-10 relative text-[#172033]"
+          style={{
+            background: 'rgba(255, 255, 255, 0.82)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(191, 219, 254, 0.8)',
+            boxShadow: '0 20px 50px rgba(30, 64, 175, 0.12)',
+          }}
+        >
+          {/* Header */}
+          <div className="flex flex-col items-center mb-8 text-center">
+            <Link href="/" className="h-13 w-13 rounded-2xl bg-[#2563EB] flex items-center justify-center font-black text-white text-2xl shadow-lg mb-3 hover:scale-105 transition-all">
+              ⚡
+            </Link>
+            <span className="text-xs font-extrabold uppercase tracking-widest text-[#2563EB] mb-1 font-heading">
+              UrbanLoop
+            </span>
+            <h1 className="text-2xl md:text-3xl font-extrabold text-[#172554] tracking-tight font-heading">
+              Welcome Back
+            </h1>
+            <p className="text-[#526070] text-xs md:text-sm font-medium mt-1">
+              Sign in to continue to municipal services
+            </p>
           </div>
-        )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="block text-slate-300 text-sm font-semibold mb-2" htmlFor="email">
-              Email Address
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              className="w-full px-4 py-3 rounded-xl bg-slate-950/80 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-slate-100 transition-all placeholder:text-slate-600"
-              placeholder="e.g. citizen@urbanloop.gov"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-slate-300 text-sm font-semibold" htmlFor="password">
-                Password
-              </label>
-              <Link href="/forgot-password" className="text-emerald-400 text-xs font-semibold hover:underline">
-                Forgot password?
-              </Link>
+          {errorMsg && (
+            <div className="mb-6 p-4 rounded-2xl border border-red-200 bg-red-50/90 text-red-800 text-xs md:text-sm font-semibold flex items-center gap-2">
+              <span>⚠</span>
+              <span>{errorMsg}</span>
             </div>
-            <input
-              id="password"
-              type="password"
-              required
-              className="w-full px-4 py-3 rounded-xl bg-slate-950/80 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-slate-100 transition-all placeholder:text-slate-600"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+          )}
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="block text-[#172033] text-xs font-extrabold uppercase tracking-wider mb-2" htmlFor="email">
+                Email Address
+              </label>
+              <input
+                id="email"
+                type="email"
+                required
+                className="w-full h-12 px-4 py-3 rounded-xl bg-white/92 border border-[#D7E0EC] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 focus:outline-none text-[#172033] text-sm font-medium transition-all placeholder:text-[#526070]/60"
+                placeholder="citizen@urbanloop.gov"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-[#172033] text-xs font-extrabold uppercase tracking-wider" htmlFor="password">
+                  Password
+                </label>
+                <Link href="/forgot-password" className="text-[#2563EB] text-xs font-bold hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+              <input
+                id="password"
+                type="password"
+                required
+                className="w-full h-12 px-4 py-3 rounded-xl bg-white/92 border border-[#D7E0EC] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 focus:outline-none text-[#172033] text-sm font-medium transition-all placeholder:text-[#526070]/60"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full h-12 py-3 bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-extrabold text-sm rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-50 mt-2 cursor-pointer flex items-center justify-center space-x-2"
+            >
+              {isLoading ? (
+                <span className="inline-block h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              ) : (
+                <span>Sign In</span>
+              )}
+            </button>
+          </form>
+
+          {/* Switch to Register */}
+          <div className="mt-8 text-center text-xs md:text-sm font-medium text-[#526070]">
+            Don't have an account?{' '}
+            <Link href="/register" className="text-[#2563EB] hover:underline font-extrabold">
+              Create Account
+            </Link>
           </div>
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full py-3.5 rounded-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none mt-2 shadow-lg shadow-emerald-500/10 flex items-center justify-center space-x-2"
-          >
-            {isLoading ? (
-              <span className="inline-block h-5 w-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></span>
-            ) : (
-              <span>Sign In</span>
-            )}
-          </button>
-        </form>
-
-        <div className="mt-8 text-center text-sm text-slate-500">
-          Don't have an account?{' '}
-          <Link href="/register" className="text-emerald-400 hover:underline font-semibold">
-            Create Citizen Account
-          </Link>
         </div>
+      </div>
+
+      {/* Footer Slogan */}
+      <div className="pt-6 text-center text-xs font-extrabold text-[#2563EB] tracking-widest uppercase flex items-center gap-2">
+        <span>🔹</span>
+        <span>CLEANER CITIES • BETTER LIVING</span>
+        <span>🔹</span>
       </div>
     </div>
   );
