@@ -1,4 +1,16 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+const getApiBaseUrl = () => {
+  let url = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1').trim().replace(/\/$/, '');
+  if (!url.endsWith('/api/v1')) {
+    if (url.endsWith('/api')) {
+      url = `${url}/v1`;
+    } else {
+      url = `${url}/api/v1`;
+    }
+  }
+  return url;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Global refresh promise to prevent multiple parallel refresh calls
 let refreshPromise: Promise<Response> | null = null;

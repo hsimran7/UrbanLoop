@@ -24,10 +24,20 @@ const app = express();
 
 // 1. Middleware
 const getAllowedOrigins = () => {
-  return (process.env.FRONTEND_URL || 'http://localhost:5173')
+  const configured = (process.env.FRONTEND_URL || '')
     .split(',')
     .map(o => o.trim().replace(/\/$/, ''))
     .filter(Boolean);
+
+  const defaultOrigins = [
+    'https://urban-loop-rho.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
+  ];
+
+  return Array.from(new Set([...configured, ...defaultOrigins]));
 };
 
 app.use(cors({
@@ -38,12 +48,7 @@ app.use(cors({
     const normalizedOrigin = origin.replace(/\/$/, '');
     const allowedOrigins = getAllowedOrigins();
 
-    if (allowedOrigins.includes(normalizedOrigin)) {
-      return callback(null, true);
-    }
-
-    // Allow localhost origins for development and local testing
-    if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(normalizedOrigin)) {
+    if (allowedOrigins.includes(normalizedOrigin) || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(normalizedOrigin)) {
       return callback(null, true);
     }
 

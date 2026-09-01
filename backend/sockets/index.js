@@ -6,10 +6,20 @@ let io = null;
 
 function init(httpServer) {
   const getAllowedOrigins = () => {
-    return (process.env.FRONTEND_URL || 'http://localhost:5173')
+    const configured = (process.env.FRONTEND_URL || '')
       .split(',')
       .map(o => o.trim().replace(/\/$/, ''))
       .filter(Boolean);
+
+    const defaultOrigins = [
+      'https://urban-loop-rho.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:3000',
+    ];
+
+    return Array.from(new Set([...configured, ...defaultOrigins]));
   };
 
   io = new Server(httpServer, {

@@ -1,10 +1,13 @@
 import { io, Socket } from 'socket.io-client';
 
-// VITE_SOCKET_URL should be your backend root URL without /api/v1
-// e.g.  http://localhost:3000  or  https://api.yourapp.com
-const SOCKET_BASE_URL =
-  import.meta.env.VITE_SOCKET_URL ||
-  (import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1').replace('/api/v1', '');
+const getSocketBaseUrl = () => {
+  let url = (import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || 'http://localhost:3000').trim().replace(/\/$/, '');
+  // Strip trailing /api/v1 or /api so it targets backend root domain for Socket.IO namespace
+  url = url.replace(/\/api\/v1$/, '').replace(/\/api$/, '');
+  return url;
+};
+
+const SOCKET_BASE_URL = getSocketBaseUrl();
 
 const sockets: { [key: string]: Socket } = {};
 
