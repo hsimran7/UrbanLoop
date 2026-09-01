@@ -23,20 +23,30 @@ const loadsRoutes = require('./routes/loads');
 const app = express();
 
 // 1. Middleware
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean);
+const getAllowedOrigins = () => {
+  return (process.env.FRONTEND_URL || 'http://localhost:5173')
+    .split(',')
+    .map(o => o.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+};
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    // In development, allow any localhost origin
-    if (process.env.NODE_ENV === 'development' && /^http:\/\/localhost:\d+$/.test(origin)) {
+    
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    const allowedOrigins = getAllowedOrigins();
+
+    if (allowedOrigins.includes(normalizedOrigin)) {
       return callback(null, true);
     }
+
+    // Allow localhost origins for development and local testing
+    if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
     callback(new Error(`CORS: Origin ${origin} not allowed`));
   },
   credentials: true,
