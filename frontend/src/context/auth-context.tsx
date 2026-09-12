@@ -38,7 +38,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await apiRequest('/auth/me');
       if (res.ok) {
         const data = await res.json();
-        if (data && data.role) data.role = data.role.toUpperCase();
         setUser(data);
       } else {
         setUser(null);
@@ -64,9 +63,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
 
       if (res.ok) {
-        if (data.user && data.user.role) {
-          data.user.role = data.user.role.toUpperCase();
-        }
         setUser(data.user);
         navigate('/dashboard');
         return { success: true };

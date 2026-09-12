@@ -173,18 +173,16 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ statusCode: 401, message: 'Invalid email or password.' });
     }
 
-    const normalizedStatus = (user.status || 'PENDING').toUpperCase();
-
-    if (normalizedStatus === 'ACTIVE' && user.isActive === false) {
+    if (user.status === 'ACTIVE' && user.isActive === false) {
       user.isActive = true;
       await user.save();
     }
 
-    if (normalizedStatus === 'PENDING' || normalizedStatus === 'PENDING_VERIFICATION') {
+    if (user.status === 'PENDING' || user.status === 'PENDING_VERIFICATION') {
       return res.status(401).json({ statusCode: 401, message: 'Your account is pending approval or verification by an administrator.' });
     }
 
-    if (normalizedStatus === 'SUSPENDED' || normalizedStatus === 'REJECTED' || normalizedStatus === 'INACTIVE') {
+    if (user.status === 'SUSPENDED' || user.status === 'REJECTED' || user.status === 'INACTIVE') {
       return res.status(401).json({ statusCode: 401, message: 'This account is inactive or has been deactivated by an administrator.' });
     }
 

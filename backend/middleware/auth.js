@@ -30,8 +30,7 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ statusCode: 401, message: 'Unauthorized: User not found.' });
     }
 
-    const normalizedStatus = (user.status || 'PENDING').toUpperCase();
-    const isAccountActive = normalizedStatus === 'ACTIVE' || (user.isActive === true && normalizedStatus !== 'SUSPENDED' && normalizedStatus !== 'REJECTED' && normalizedStatus !== 'INACTIVE');
+    const isAccountActive = user.status === 'ACTIVE' || (user.isActive === true && user.status !== 'SUSPENDED' && user.status !== 'REJECTED' && user.status !== 'INACTIVE');
     if (!isAccountActive) {
       return res.status(403).json({ statusCode: 403, message: 'Forbidden: Account has been deactivated or suspended by an administrator.' });
     }
