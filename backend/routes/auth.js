@@ -17,10 +17,12 @@ function getCookieOptions(isRefresh = false) {
     ? parseInt(process.env.JWT_REFRESH_EXPIRES_IN || '604800') * 1000
     : parseInt(process.env.JWT_ACCESS_EXPIRES_IN || '900') * 1000;
 
+  const isProduction = process.env.NODE_ENV === 'production';
+
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
     path: '/',
     maxAge,
   };
