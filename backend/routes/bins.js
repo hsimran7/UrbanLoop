@@ -545,6 +545,114 @@ router.get('/area-drilldown/:areaId', protect, requireRoles(...ADMIN_ROLES, 'SUP
   } catch (err) { next(err); }
 });
 
+// GET /api/v1/bins/ai-recommendations — Real DB recommendations
+// NOTE: Must be declared BEFORE /:id to avoid Express matching 'ai-recommendations' as an ObjectId param
+router.get('/ai-recommendations', protect, async (req, res, next) => {
+  try {
+    const list = [];
+    const overflowBins = await Bin.find({ currentFillLevel: { $gte: 75 } })
+      .populate({ path: 'collectionPointId', populate: { path: 'areaId' } })
+      .limit(10)
+      .lean();
+
+    overflowBins.forEach(b => {
+      list.push({
+        id: `rec-overflow-${b._id}`,
+        title: `Empty Overflow Bin ${b.qrCodeId || b._id.toString().slice(-4)}`,
+        description: `Current fill level is at ${b.currentFillLevel}% at ${b.collectionPointId?.name || 'Collection Point'}. Immediate collection recommended.`,
+        actionType: 'DISPATCH',
+        targetId: b._id.toString(),
+        status: 'PENDING',
+        factors: [`Fill Level: ${b.currentFillLevel}%`, `Area: ${b.collectionPointId?.areaId?.name || 'Local Area'}`],
+      });
+    });
+
+    res.json(list);
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/bins/live-activity — Real DB live telemetry stream
+router.get('/live-activity', protect, async (req, res, next) => {
+  try {
+    const telemetries = await BinTelemetry.find()
+      .populate({ path: 'binId', populate: 'collectionPointId' })
+      .sort({ timestamp: -1 })
+      .limit(20)
+      .lean();
+
+    if (telemetries.length > 0) {
+      return res.json(telemetries.map(t => ({
+        id: t._id.toString(),
+        binId: t.binId?.qrCodeId || t.binId?._id?.toString() || 'BIN',
+        fillLevel: t.fillLevel,
+        batteryLevel: t.batteryLevel || 95,
+        temperature: t.temperature || 25,
+        timestamp: t.timestamp || t.createdAt,
+        location: t.binId?.collectionPointId?.name || 'Municipal Zone',
+      })));
+    }
+
+    const logs = await AuditLog.find({ action: { $regex: /BIN|ASSIGNMENT/i } })
+      .sort({ createdAt: -1 })
+      .limit(15)
+      .lean();
+
+    res.json(logs.map((l, i) => ({
+      id: l._id.toString(),
+      binId: l.details?.binId || `BIN-00${i + 1}`,
+      fillLevel: l.details?.fillLevel || 60,
+      batteryLevel: 90,
+      temperature: 24,
+      timestamp: l.createdAt,
+      location: l.details?.location || 'City Operations Center',
+    })));
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/bins/predictive-intelligence — Real DB predictive overflow analytics
+router.get('/predictive-intelligence', protect, async (req, res, next) => {
+  try {
+    const bins = await Bin.find().populate({ path: 'collectionPointId', populate: 'areaId' }).lean();
+    const predictions = bins.map(b => {
+      const current = b.currentFillLevel || 0;
+      const risk = current > 80 ? 'HIGH' : (current > 50 ? 'MEDIUM' : 'LOW');
+      const hoursToOverflow = current > 90 ? 1 : Math.max(2, Math.round((100 - current) / 4));
+      return {
+        binId: b._id.toString(),
+        qrCodeId: b.qrCodeId,
+        currentFillLevel: current,
+        predictedFillLevelIn4h: Math.min(100, current + 16),
+        hoursToOverflow,
+        riskLevel: risk,
+        areaName: b.collectionPointId?.areaId?.name || 'Local Ward',
+      };
+    });
+    res.json(predictions);
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/bins/resource-allocation — Real DB resource allocation
+router.get('/resource-allocation', protect, async (req, res, next) => {
+  try {
+    const areas = await Area.find().lean();
+    const allocations = await Promise.all(areas.map(async (a) => {
+      const points = await CollectionPoint.find({ areaId: a._id }).select('_id');
+      const pointIds = points.map(p => p._id);
+      const binCount = await Bin.countDocuments({ collectionPointId: { $in: pointIds } });
+      const overflowCount = await Bin.countDocuments({ collectionPointId: { $in: pointIds }, currentFillLevel: { $gte: 80 } });
+      return {
+        areaId: a._id.toString(),
+        areaName: a.name,
+        totalBins: binCount,
+        criticalBins: overflowCount,
+        assignedWorkers: Math.max(1, Math.ceil(binCount / 5)),
+        assignedVehicles: overflowCount > 0 ? 1 : 0,
+      };
+    }));
+    res.json(allocations);
+  } catch (err) { next(err); }
+});
+
 // GET /api/v1/bins/:id
 router.get('/:id', protect, async (req, res, next) => {
   try {
@@ -693,118 +801,6 @@ router.post('/actions/:action', protect, requireRoles(...ADMIN_ROLES, 'SUPERVISO
       message: `Action ${action} executed successfully.`,
       timestamp: new Date().toISOString(),
     });
-  } catch (err) { next(err); }
-});
-
-// GET /api/v1/bins/ai-recommendations — Real DB recommendations
-router.get('/ai-recommendations', protect, async (req, res, next) => {
-  try {
-    const list = [];
-    const overflowBins = await Bin.find({ currentFillLevel: { $gte: 75 } })
-      .populate({ path: 'collectionPointId', populate: { path: 'areaId' } })
-      .limit(10)
-      .lean();
-
-    overflowBins.forEach(b => {
-      list.push({
-        id: `rec-overflow-${b._id}`,
-        title: `Empty Overflow Bin ${b.qrCodeId || b._id.toString().slice(-4)}`,
-        description: `Current fill level is at ${b.currentFillLevel}% at ${b.collectionPointId?.name || 'Collection Point'}. Immediate collection recommended.`,
-        actionType: 'DISPATCH',
-        targetId: b._id.toString(),
-        status: 'PENDING',
-        factors: [`Fill Level: ${b.currentFillLevel}%`, `Area: ${b.collectionPointId?.areaId?.name || 'Local Area'}`],
-      });
-    });
-
-    res.json(list);
-  } catch (err) { next(err); }
-});
-
-// GET /api/v1/bins/live-activity — Real DB live telemetry stream
-router.get('/live-activity', protect, async (req, res, next) => {
-  try {
-    const telemetries = await BinTelemetry.find()
-      .populate({ path: 'binId', populate: 'collectionPointId' })
-      .sort({ timestamp: -1 })
-      .limit(20)
-      .lean();
-
-    if (telemetries.length > 0) {
-      return res.json(telemetries.map(t => ({
-        id: t._id.toString(),
-        binId: t.binId?.qrCodeId || t.binId?._id?.toString() || 'BIN',
-        fillLevel: t.fillLevel,
-        batteryLevel: t.batteryLevel || 95,
-        temperature: t.temperature || 25,
-        timestamp: t.timestamp || t.createdAt,
-        location: t.binId?.collectionPointId?.name || 'Municipal Zone',
-      })));
-    }
-
-    // Fallback to recent AuditLog entries for bin operations
-    const logs = await AuditLog.find({ action: { $regex: /BIN|ASSIGNMENT/i } })
-      .sort({ createdAt: -1 })
-      .limit(15)
-      .lean();
-
-    res.json(logs.map((l, i) => ({
-      id: l._id.toString(),
-      binId: l.details?.binId || `BIN-00${i + 1}`,
-      fillLevel: l.details?.fillLevel || Math.floor(Math.random() * 40) + 50,
-      batteryLevel: 90,
-      temperature: 24,
-      timestamp: l.createdAt,
-      location: l.details?.location || 'City Operations Center',
-    })));
-  } catch (err) { next(err); }
-});
-
-// GET /api/v1/bins/predictive-intelligence — Real DB predictive overflow analytics
-router.get('/predictive-intelligence', protect, async (req, res, next) => {
-  try {
-    const bins = await Bin.find().populate({ path: 'collectionPointId', populate: 'areaId' }).lean();
-    const predictions = bins.map(b => {
-      const current = b.currentFillLevel || 0;
-      const risk = current > 80 ? 'HIGH' : (current > 50 ? 'MEDIUM' : 'LOW');
-      const hoursToOverflow = current > 90 ? 1 : Math.max(2, Math.round((100 - current) / 4));
-
-      return {
-        binId: b._id.toString(),
-        qrCodeId: b.qrCodeId,
-        currentFillLevel: current,
-        predictedFillLevelIn4h: Math.min(100, current + 16),
-        hoursToOverflow,
-        riskLevel: risk,
-        areaName: b.collectionPointId?.areaId?.name || 'Local Ward',
-      };
-    });
-
-    res.json(predictions);
-  } catch (err) { next(err); }
-});
-
-// GET /api/v1/bins/resource-allocation — Real DB resource allocation
-router.get('/resource-allocation', protect, async (req, res, next) => {
-  try {
-    const areas = await Area.find().lean();
-    const allocations = await Promise.all(areas.map(async (a) => {
-      const points = await CollectionPoint.find({ areaId: a._id }).select('_id');
-      const pointIds = points.map(p => p._id);
-      const binCount = await Bin.countDocuments({ collectionPointId: { $in: pointIds } });
-      const overflowCount = await Bin.countDocuments({ collectionPointId: { $in: pointIds }, currentFillLevel: { $gte: 80 } });
-
-      return {
-        areaId: a._id.toString(),
-        areaName: a.name,
-        totalBins: binCount,
-        criticalBins: overflowCount,
-        assignedWorkers: Math.max(1, Math.ceil(binCount / 5)),
-        assignedVehicles: overflowCount > 0 ? 1 : 0,
-      };
-    }));
-
-    res.json(allocations);
   } catch (err) { next(err); }
 });
 
