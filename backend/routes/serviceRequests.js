@@ -115,7 +115,8 @@ router.post('/', protect, async (req, res, next) => {
     }
 
     // Create new service request
-    const request = await ServiceRequest.create({
+    // Build the create payload — only include GeoJSON location when coordinates are available
+    const createPayload = {
       requestCode: `SR-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       createdByUserId: req.user.id,
       categoryId,
@@ -127,7 +128,17 @@ router.post('/', protect, async (req, res, next) => {
       latitude: latitude || null,
       longitude: longitude || null,
       addressText: addressText || null,
-    });
+    };
+
+    // Only set GeoJSON location when valid coordinates exist (avoids 2dsphere index error)
+    if (latitude != null && longitude != null) {
+      createPayload.location = {
+        type: 'Point',
+        coordinates: [parseFloat(longitude), parseFloat(latitude)], // GeoJSON: [lng, lat]
+      };
+    }
+
+    const request = await ServiceRequest.create(createPayload);
     
     // Emit socket event for Admin dashboard
     realtimeEventEmitter.emit('NEW_CITIZEN_REQUEST', {

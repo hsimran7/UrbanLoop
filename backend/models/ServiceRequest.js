@@ -45,8 +45,8 @@ const serviceRequestSchema = new mongoose.Schema({
   latitude: { type: Number, default: null },
   longitude: { type: Number, default: null },
   location: {
-    type: { type: String, enum: ['Point'], default: 'Point' },
-    coordinates: { type: [Number], default: null },
+    type: { type: String, enum: ['Point'] },
+    coordinates: { type: [Number] },
   },
   addressText: { type: String, default: null },
   assignedDepartmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null },
@@ -84,7 +84,7 @@ const serviceRequestSchema = new mongoose.Schema({
 serviceRequestSchema.index({ createdByUserId: 1 });
 serviceRequestSchema.index({ status: 1 });
 serviceRequestSchema.index({ areaId: 1 });
-serviceRequestSchema.index({ location: '2dsphere' });
+serviceRequestSchema.index({ location: '2dsphere' }, { sparse: true });
 
 module.exports = {
   ServiceRequestCategory: mongoose.model('ServiceRequestCategory', serviceRequestCategorySchema),
