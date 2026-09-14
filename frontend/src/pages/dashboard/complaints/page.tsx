@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { apiRequest } from '../../../utils/api';
 import { PunjabLocationSelector, LocationData } from '../../../components/ui/PunjabLocationSelector';
+import { UrbanLoopMap } from '../../../components/maps/UrbanLoopMap';
+import { reverseGeocode, mapAddressToHierarchy } from '../../../utils/geocoding';
+
+const FALLBACK_CATEGORIES = [
+  { id: 'cat-missed', code: 'MISSED_COLLECTION', name: 'Missed Waste Collection', description: 'Dry/Wet waste not collected' },
+  { id: 'cat-overflow', code: 'OVERFLOWING_BIN', name: 'Overflowing Bin', description: 'Bin fill level exceeding limit' },
+  { id: 'cat-damaged', code: 'DAMAGED_BIN', name: 'Damaged Smart Bin', description: 'Broken lid or physical structure' },
+  { id: 'cat-illegal', code: 'ILLEGAL_DUMPING', name: 'Illegal Dumping', description: 'Unauthorized waste disposal on street' },
+  { id: 'cat-odor', code: 'FACILITY_ODOR', name: 'Facility Odor', description: 'Bad odor from nearby processing center' },
+  { id: 'cat-other', code: 'OTHER', name: 'Other Complaints', description: 'General citizen support query' },
+];
 
 interface Category {
   id: string;
@@ -86,16 +97,14 @@ export default function CitizenComplaintsPage() {
       
       // Category fallback if backend hasn't populated database rows
       if (catRes.ok) {
-        setCategories(await catRes.json());
+        const catData = await catRes.json();
+        if (catData && catData.length > 0) {
+          setCategories(catData);
+        } else {
+          setCategories(FALLBACK_CATEGORIES);
+        }
       } else {
-        setCategories([
-          { id: 'cat-missed', code: 'MISSED_COLLECTION', name: 'Missed Waste Collection', description: 'Dry/Wet waste not collected' },
-          { id: 'cat-overflow', code: 'OVERFLOWING_BIN', name: 'Overflowing Bin', description: 'Bin fill level exceeding limit' },
-          { id: 'cat-damaged', code: 'DAMAGED_BIN', name: 'Damaged Smart Bin', description: 'Broken lid or physical structure' },
-          { id: 'cat-illegal', code: 'ILLEGAL_DUMPING', name: 'Illegal Dumping', description: 'Unauthorized waste disposal on street' },
-          { id: 'cat-odor', code: 'FACILITY_ODOR', name: 'Facility Odor', description: 'Bad odor from nearby processing center' },
-          { id: 'cat-other', code: 'OTHER', name: 'Other Complaints', description: 'General citizen support query' },
-        ]);
+        setCategories(FALLBACK_CATEGORIES);
       }
 
       if (propRes.ok) setProperties(await propRes.json());
@@ -114,6 +123,24 @@ export default function CitizenComplaintsPage() {
       setBins([]);
     }
   }, [propertyId]);
+
+  const handleMapClick = async (latlng: { lat: number; lng: number }) => {
+    setLatitude(latlng.lat.toString());
+    setLongitude(latlng.lng.toString());
+    const result = await reverseGeocode(latlng.lat, latlng.lng);
+    if (result) {
+      const h = mapAddressToHierarchy(result.address);
+      const newLocData = {
+        state: h.state || 'Punjab',
+        district: locationData.district, // Keep existing if reverse geocode doesn't give exact
+        city: h.city || locationData.city,
+        area: h.area || h.ward || locationData.area,
+        address: result.address.road || locationData.address,
+      };
+      setLocationData(newLocData);
+      setAddressText([newLocData.address, newLocData.area, newLocData.city, newLocData.district, newLocData.state].filter(Boolean).join(', '));
+    }
+  };
 
   async function fetchPropertyBins(pid: string) {
     try {
@@ -328,6 +355,14 @@ export default function CitizenComplaintsPage() {
 
             <div className="space-y-1.5">
               <label className="text-slate-600 block font-bold">Service Location (Punjab)</label>
+              <div className="h-[300px] relative rounded-xl overflow-hidden border border-surface-border shadow-sm mb-3">
+                <UrbanLoopMap
+                  center={[latitude ? Number(latitude) : 30.900965, longitude ? Number(longitude) : 75.857277]}
+                  zoom={15}
+                  onMapClick={handleMapClick}
+                  markers={latitude && longitude ? [{ id: 'pin', position: [Number(latitude), Number(longitude)] }] : []}
+                />
+              </div>
               <PunjabLocationSelector
                 value={locationData}
                 onChange={(loc) => {

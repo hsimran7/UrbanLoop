@@ -48,7 +48,7 @@ const MapCore: React.FC<MapProps> = ({
   circleMarkers = [],
   onMapClick,
   className = "w-full h-full min-h-[400px] rounded-xl z-0",
-  tileLayerUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+  tileLayerUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -66,7 +66,8 @@ const MapCore: React.FC<MapProps> = ({
     });
 
     L.tileLayer(tileLayerUrl, {
-      attribution: '&copy; <a href="https://carto.com/">CartoDB</a> &copy; OpenStreetMap',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
     }).addTo(map);
 
     const layerGroup = L.layerGroup().addTo(map);
