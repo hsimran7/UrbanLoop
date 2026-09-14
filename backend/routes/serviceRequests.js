@@ -30,6 +30,8 @@ router.get('/', protect, async (req, res, next) => {
       description: r.description,
       status: r.status,
       priority: r.priority,
+      // Nest category as object so frontend can access r.category.name safely
+      category: r.categoryId ? { id: r.categoryId._id?.toString() || r.categoryId.toString(), name: r.categoryId.name || '' } : { id: '', name: 'Uncategorized' },
       categoryName: r.categoryId?.name,
       areaName: r.areaId?.name,
       citizenName: r.createdByUserId?.name || 'Anonymous',

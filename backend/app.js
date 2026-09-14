@@ -107,6 +107,12 @@ app.use('/api/v1/teams', teamsRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/loads', loadsRoutes);
 
+// /api/v1/departments — Department model not yet implemented; return empty array to prevent 404 polling
+const { protect: authProtectDept } = require('./middleware/auth');
+app.get('/api/v1/departments', authProtectDept, (req, res) => {
+  res.json([]);
+});
+
 const { protect: authProtect } = require('./middleware/auth');
 const CollectionSchedule = require('./models/CollectionSchedule');
 

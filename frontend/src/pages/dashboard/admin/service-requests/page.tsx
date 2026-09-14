@@ -411,7 +411,7 @@ export default function GovernmentServiceRequestsPage() {
                   <div className="flex justify-between items-start">
                     <div>
                       <h4 className="font-semibold text-slate-200">{r.requestCode} - {r.title}</h4>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Category: {r.category.name}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Category: {r.category?.name || r.categoryName || 'N/A'}</p>
                     </div>
 
                     <div className="flex gap-2">
