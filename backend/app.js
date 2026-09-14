@@ -22,6 +22,33 @@ const loadsRoutes = require('./routes/loads');
 
 const app = express();
 
+// Idempotent startup seeding — ensure complaint categories exist in DB
+async function seedServiceRequestCategories() {
+  try {
+    const { ServiceRequestCategory } = require('./models/ServiceRequest');
+    const count = await ServiceRequestCategory.countDocuments();
+    if (count === 0) {
+      await ServiceRequestCategory.insertMany([
+        { code: 'MISSED_COLLECTION', name: 'Missed Waste Collection', description: 'Dry/Wet waste not collected on scheduled day', defaultPriority: 'NORMAL' },
+        { code: 'OVERFLOWING_BIN', name: 'Overflowing Bin', description: 'Smart bin fill level exceeding limit', defaultPriority: 'HIGH' },
+        { code: 'DAMAGED_BIN', name: 'Damaged Smart Bin', description: 'Broken lid or physical structure damage', defaultPriority: 'NORMAL' },
+        { code: 'ILLEGAL_DUMPING', name: 'Illegal Dumping', description: 'Unauthorized waste disposal on street or public space', defaultPriority: 'HIGH' },
+        { code: 'FACILITY_ODOR', name: 'Facility Odor', description: 'Bad odor from nearby waste processing center', defaultPriority: 'NORMAL' },
+        { code: 'OTHER', name: 'Other Complaints', description: 'General citizen support query', defaultPriority: 'LOW' },
+      ]);
+      console.log('[Seed] ServiceRequestCategories seeded (6 categories).');
+    }
+  } catch (err) {
+    console.error('[Seed] Failed to seed ServiceRequestCategories:', err.message);
+  }
+}
+
+// Run seeding after DB connection is ready (mongoose emits 'connected')
+const mongoose = require('mongoose');
+mongoose.connection.once('open', () => {
+  seedServiceRequestCategories();
+});
+
 // 1. Middleware
 const getAllowedOrigins = () => {
   const configured = (process.env.FRONTEND_URL || '')

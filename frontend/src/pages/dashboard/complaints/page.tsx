@@ -4,16 +4,8 @@ import { PunjabLocationSelector, LocationData } from '../../../components/ui/Pun
 import { UrbanLoopMap } from '../../../components/maps/UrbanLoopMap';
 import { reverseGeocode, mapAddressToHierarchy } from '../../../utils/geocoding';
 
-const FALLBACK_CATEGORIES = [
-  { id: 'cat-missed', code: 'MISSED_COLLECTION', name: 'Missed Waste Collection', description: 'Dry/Wet waste not collected' },
-  { id: 'cat-overflow', code: 'OVERFLOWING_BIN', name: 'Overflowing Bin', description: 'Bin fill level exceeding limit' },
-  { id: 'cat-damaged', code: 'DAMAGED_BIN', name: 'Damaged Smart Bin', description: 'Broken lid or physical structure' },
-  { id: 'cat-illegal', code: 'ILLEGAL_DUMPING', name: 'Illegal Dumping', description: 'Unauthorized waste disposal on street' },
-  { id: 'cat-odor', code: 'FACILITY_ODOR', name: 'Facility Odor', description: 'Bad odor from nearby processing center' },
-  { id: 'cat-other', code: 'OTHER', name: 'Other Complaints', description: 'General citizen support query' },
-];
-
 interface Category {
+  _id: string;
   id: string;
   code: string;
   name: string;
@@ -95,16 +87,16 @@ export default function CitizenComplaintsPage() {
 
       if (reqRes.ok) setRequests(await reqRes.json());
       
-      // Category fallback if backend hasn't populated database rows
       if (catRes.ok) {
         const catData = await catRes.json();
         if (catData && catData.length > 0) {
           setCategories(catData);
         } else {
-          setCategories(FALLBACK_CATEGORIES);
+          // Categories not seeded yet — leave empty, show message in form
+          setCategories([]);
         }
       } else {
-        setCategories(FALLBACK_CATEGORIES);
+        setCategories([]);
       }
 
       if (propRes.ok) setProperties(await propRes.json());
@@ -164,13 +156,28 @@ export default function CitizenComplaintsPage() {
 
     const activeProp = properties.find(p => p.id === propertyId);
 
+    // Front-end validation before sending to backend
+    if (!title.trim()) {
+      setErrorMsg('Please enter a complaint title.');
+      return;
+    }
+    if (!categoryId) {
+      setErrorMsg('Please select a complaint category.');
+      return;
+    }
+    if (!description.trim()) {
+      setErrorMsg('Please enter a description of the complaint.');
+      return;
+    }
+
     const payload = {
       categoryId,
-      areaId: activeProp?.areaId || 'area-default-mock',
+      // Only send areaId if it is a real DB id (from a linked property)
+      areaId: activeProp?.areaId || undefined,
       propertyId: propertyId || undefined,
       binId: binId || undefined,
-      title,
-      description,
+      title: title.trim(),
+      description: description.trim(),
       latitude: latitude ? parseFloat(latitude) : undefined,
       longitude: longitude ? parseFloat(longitude) : undefined,
       addressText: addressText || activeProp?.address || undefined,
@@ -309,7 +316,24 @@ export default function CitizenComplaintsPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4 text-xs">
             <div className="space-y-1.5">
+              <label className="text-slate-600 block font-bold">Complaint Title</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Missed collection on Main Street"
+                required
+                className="input-field !py-2"
+              />
+            </div>
+
+            <div className="space-y-1.5">
               <label className="text-slate-600 block font-bold">Category</label>
+              {categories.length === 0 && !loading ? (
+                <p className="text-xs text-amber-600 font-medium p-2 border border-amber-200 rounded-lg bg-amber-50">
+                  ⚠️ No categories available. Please try refreshing the page.
+                </p>
+              ) : (
               <select
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
@@ -318,9 +342,10 @@ export default function CitizenComplaintsPage() {
               >
                 <option value="">Select Category</option>
                 {categories.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
+                  <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>
                 ))}
               </select>
+              )}
             </div>
 
             <div className="space-y-1.5">

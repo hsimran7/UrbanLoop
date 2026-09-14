@@ -84,20 +84,49 @@ router.get('/my-requests', protect, async (req, res, next) => {
 // POST /api/v1/service-requests (Citizen submits complaint)
 router.post('/', protect, async (req, res, next) => {
   try {
-    const { categoryId, areaId, title, description, priority, latitude, longitude } = req.body;
-    
+    const { categoryId, areaId, title, description, priority, latitude, longitude, addressText } = req.body;
+
+    // Validate required fields early with clear errors
+    if (!title || !title.trim()) {
+      return res.status(400).json({ message: 'title is required.' });
+    }
+    if (!description || !description.trim()) {
+      return res.status(400).json({ message: 'description is required.' });
+    }
+    if (!categoryId) {
+      return res.status(400).json({ message: 'categoryId is required.' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+      return res.status(400).json({ message: 'categoryId must be a valid category selected from the list.' });
+    }
+
+    // Verify category actually exists in DB
+    const categoryExists = await ServiceRequestCategory.findById(categoryId).lean();
+    if (!categoryExists) {
+      return res.status(400).json({ message: 'Selected category does not exist. Please refresh and select a valid category.' });
+    }
+
+    // areaId: if a valid ObjectId is provided use it, otherwise generate one (area linking is optional in this flow)
+    let resolvedAreaId;
+    if (areaId && mongoose.Types.ObjectId.isValid(areaId)) {
+      resolvedAreaId = areaId;
+    } else {
+      resolvedAreaId = new mongoose.Types.ObjectId();
+    }
+
     // Create new service request
     const request = await ServiceRequest.create({
       requestCode: `SR-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       createdByUserId: req.user.id,
-      categoryId: categoryId || new mongoose.Types.ObjectId(), // mocked if not provided
-      areaId: areaId || new mongoose.Types.ObjectId(), // mocked if not provided
-      title,
-      description,
+      categoryId,
+      areaId: resolvedAreaId,
+      title: title.trim(),
+      description: description.trim(),
       priority: priority || 'NORMAL',
       status: 'SUBMITTED',
       latitude: latitude || null,
       longitude: longitude || null,
+      addressText: addressText || null,
     });
     
     // Emit socket event for Admin dashboard
